@@ -208,7 +208,11 @@ if legs:
                     
                 n_exp = st.date_input("Expiry", value=def_date, key=f"exp_{lid}", label_visibility="collapsed")
             with cols[5]:
-                b_cols = st.columns([2, 1, 1])
+                l_dict = dict(leg)
+                leg_status = l_dict.get('status', 'OPEN')
+                is_closed = leg_status != 'OPEN'
+                
+                b_cols = st.columns([4, 2, 2, 2]) if is_closed else st.columns([4, 2, 2])
                 with b_cols[0]:
                     if st.button("Save", key=f"save_{lid}", use_container_width=True):
                         try:
@@ -223,42 +227,41 @@ if legs:
                         except ValueError:
                             st.error("Invalid strike.")
                 with b_cols[1]:
-                    l_dict = dict(leg)
-                    leg_status = l_dict.get('status', 'OPEN')
-                    
-                    if leg_status == 'OPEN':
-                        if st.button("📦", key=f"arch_{lid}", use_container_width=True, help="Transfer leg to isolated History trade"):
-                            from src.database.queries import insert_trade
-                            import datetime
-                            
-                            exit_px = l_dict.get('exit_price', 0) or 0
-                            entry_px = l_dict.get('entry_price', 0) or 0
-                            qty_closed = l_dict.get('qty_closed', 1) or 1
-                            is_short = l_dict.get('side') == 'SHORT'
-                            
-                            realized = ((entry_px - exit_px) * 100 * qty_closed) if is_short else ((exit_px - entry_px) * 100 * qty_closed)
-                                    
-                            t_dict = dict(trade)
-                            new_trade = {
-                                'account': t_dict.get('account', 'Default'),
-                                'broker': t_dict.get('broker', 'Manual'),
-                                'underlying': t_dict.get('underlying', l_dict.get('symbol')),
-                                'strategy_type': 'SINGLE_LEG',
-                                'open_date': t_dict.get('open_date', datetime.date.today().strftime('%Y-%m-%d')),
-                                'close_date': datetime.date.today().strftime('%Y-%m-%d'),
-                                'status': 'CLOSED_WIN' if realized >= 0 else 'CLOSED_LOSS',
-                                'realized_pnl': realized,
-                                'entry_credit_debit': (entry_px * qty_closed) if is_short else -(entry_px * qty_closed)
-                            }
-                            
-                            try:
-                                n_tid = insert_trade(new_trade)
-                                update_trade_leg(lid, {'trade_id': n_tid})
-                                st.success("Leg transferred to History log!")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error archiving: {e}")
-                    else:
+                    if st.button("📦", key=f"arch_{lid}", use_container_width=True, help="Transfer leg to isolated History trade"):
+                        from src.database.queries import insert_trade
+                        import datetime
+                        
+                        exit_px = l_dict.get('exit_price', 0) or 0
+                        entry_px = l_dict.get('entry_price', 0) or 0
+                        qty_closed = l_dict.get('qty_closed', 1) or 1
+                        is_short = l_dict.get('side') == 'SHORT'
+                        
+                        realized = ((entry_px - exit_px) * 100 * qty_closed) if is_short else ((exit_px - entry_px) * 100 * qty_closed)
+                                
+                        t_dict = dict(trade)
+                        new_trade = {
+                            'account': t_dict.get('account', 'Default'),
+                            'broker': t_dict.get('broker', 'Manual'),
+                            'underlying': t_dict.get('underlying', l_dict.get('symbol')),
+                            'strategy_type': 'SINGLE_LEG',
+                            'open_date': t_dict.get('open_date', datetime.date.today().strftime('%Y-%m-%d')),
+                            'close_date': datetime.date.today().strftime('%Y-%m-%d'),
+                            'status': 'CLOSED_WIN' if realized >= 0 else 'CLOSED_LOSS',
+                            'realized_pnl': realized,
+                            'entry_credit_debit': (entry_px * qty_closed) if is_short else -(entry_px * qty_closed)
+                        }
+                        
+                        try:
+                            n_tid = insert_trade(new_trade)
+                            update_trade_leg(lid, {'trade_id': n_tid, 'status': 'CLOSED'})
+                            st.success("Leg transferred to History log!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error archiving: {e}")
+                
+                col_idx = 2
+                if is_closed:
+                    with b_cols[col_idx]:
                         if st.button("🔄", key=f"reac_{lid}", use_container_width=True, help="Re-activate leg to Active Portfolio"):
                             from src.database.queries import update_trade
                             try:
@@ -268,7 +271,9 @@ if legs:
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Error reactivating: {e}")
-                with b_cols[2]:
+                    col_idx += 1
+                    
+                with b_cols[col_idx]:
                     if st.button("🗑️", key=f"del_{lid}", use_container_width=True, help="Permanently delete leg"):
                         from src.database.queries import delete_trade_leg
                         delete_trade_leg(lid)
