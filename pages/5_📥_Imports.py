@@ -207,6 +207,64 @@ with tab2:
                     else:
                         st.info("No open positions found.")
 
+            if st.session_state.get('api_positions'):
+                st.divider()
+                st.markdown("#### Send to Strategy Engine")
+                st.warning("⚠️ This will map your live positions into strategies (Iron Condors, Spreads, etc.) and inject them directly into your Active Portfolio. Only do this once per new account to avoid duplicates!")
+                if st.button("📥 Convert & Import Live Positions", type="primary", key="import_live_pos"):
+                    with st.spinner("Processing through strategy engine..."):
+                        from src.utils.option_symbols import parse_occ_symbol
+                        from src.engine.strategy_grouper import group_positions_into_trades, save_trades_to_db
+                        mapped_positions = []
+                        for p in st.session_state.api_positions:
+                            is_equity = p['instrument_type'] == 'Equity'
+                            if is_equity:
+                                mapped = {
+                                    'account': p['account_number'],
+                                    'broker': 'tastytrade',
+                                    'underlying': p.get('underlying_symbol') or p['symbol'],
+                                    'open_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                                    'instrument_type': 'EQUITY',
+                                    'side': 'LONG' if float(p['quantity']) > 0 else 'SHORT',
+                                    'total_open': abs(float(p['quantity'])),
+                                    'is_fully_closed': False,
+                                    'total_closed': 0,
+                                    'avg_open_price': p['average_open_price'],
+                                    'avg_close_price': 0,
+                                    'realized_pnl': 0,
+                                }
+                                mapped_positions.append(mapped)
+                            else:
+                                opt = parse_occ_symbol(p['symbol'])
+                                if opt:
+                                    mapped = {
+                                        'account': p['account_number'],
+                                        'broker': 'tastytrade',
+                                        'underlying': opt['underlying'],
+                                        'expiry': opt['expiry'],
+                                        'put_call': opt['put_call'],
+                                        'strike': opt['strike'],
+                                        'open_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                                        'instrument_type': 'OPTION',
+                                        'side': 'LONG' if float(p['quantity']) > 0 else 'SHORT',
+                                        'total_open': abs(float(p['quantity'])),
+                                        'is_fully_closed': False,
+                                        'total_closed': 0,
+                                        'avg_open_price': p['average_open_price'],
+                                        'avg_close_price': 0,
+                                        'realized_pnl': 0,
+                                        'symbol': p['symbol']
+                                    }
+                                    mapped_positions.append(mapped)
+                        
+                        if not mapped_positions:
+                            st.error("No valid positions to import.")
+                        else:
+                            trades = group_positions_into_trades(mapped_positions)
+                            trade_ids = save_trades_to_db(trades)
+                            st.success(f"✅ Imported {len(trade_ids)} strategy groups into your Active Portfolio!")
+                            st.info("Head over to the **Active Portfolio** tab to see your live grouped trades.")
+
         else:
             c1, c2 = st.columns(2)
             with c1:
