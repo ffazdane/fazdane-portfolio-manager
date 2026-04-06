@@ -186,26 +186,46 @@ with tab2:
         )
 
         if import_type == "📊 Current Positions":
-            if st.button("🔄 Fetch Current Positions", key="fetch_positions", type="primary"):
-                with st.spinner("Fetching positions..."):
-                    positions, error = get_positions(session, selected_acct)
-                    if error:
-                        st.error(error)
-                    elif positions:
-                        st.success(f"✅ Fetched {len(positions)} positions")
-                        df = pd.DataFrame(positions)
-                        st.dataframe(df, use_container_width=True, hide_index=True)
-                        st.session_state.api_positions = positions
+            if 'api_positions' not in st.session_state:
+                st.session_state.api_positions = []
 
-                        # Also fetch balances
-                        bal, _ = get_balances(session, selected_acct)
-                        if bal:
-                            c1, c2, c3 = st.columns(3)
-                            c1.metric("Net Liquidating Value", f"${bal.get('net_liquidating_value', 0):,.2f}")
-                            c2.metric("Buying Power", f"${bal.get('buying_power', 0):,.2f}")
-                            c3.metric("Cash Balance", f"${bal.get('cash_balance', 0):,.2f}")
-                    else:
-                        st.info("No open positions found.")
+            c1, c2 = st.columns([3, 1])
+            with c1:
+                if st.button("🔄 Fetch Current Positions (Append)", key="fetch_positions", type="primary"):
+                    with st.spinner(f"Fetching positions for {selected_acct}..."):
+                        positions, error = get_positions(session, selected_acct)
+                        if error:
+                            st.error(error)
+                        elif positions:
+                            existing = {(p['account_number'], p['symbol']) for p in st.session_state.api_positions}
+                            added = 0
+                            for p in positions:
+                                if (p.get('account_number'), p.get('symbol')) not in existing:
+                                    st.session_state.api_positions.append(p)
+                                    added += 1
+                                    
+                            st.success(f"✅ Appended {added} new positions to staging area.")
+
+                            # Also fetch balances
+                            bal, _ = get_balances(session, selected_acct)
+                            if bal:
+                                bc1, bc2, bc3 = st.columns(3)
+                                bc1.metric("Net Liquidating Value", f"${bal.get('net_liquidating_value', 0):,.2f}")
+                                bc2.metric("Buying Power", f"${bal.get('buying_power', 0):,.2f}")
+                                bc3.metric("Cash Balance", f"${bal.get('cash_balance', 0):,.2f}")
+                        else:
+                            st.info("No open positions found.")
+                            
+            with c2:
+                if st.session_state.api_positions:
+                    if st.button("🗑️ Clear Staged", key="clear_staged"):
+                        st.session_state.api_positions = []
+                        st.rerun()
+
+            if st.session_state.api_positions:
+                st.markdown(f"**Staged Positions ({len(st.session_state.api_positions)})**")
+                df = pd.DataFrame(st.session_state.api_positions)
+                st.dataframe(df, use_container_width=True, hide_index=True)
 
             if st.session_state.get('api_positions'):
                 st.divider()
