@@ -63,7 +63,20 @@ def get_tastytrade_session(client_secret=None, refresh_token=None,
     username = username or os.getenv('TASTYTRADE_USERNAME', '').strip()
     password = password or os.getenv('TASTYTRADE_PASSWORD', '').strip()
 
-    # If no separate client_id, fall back to using client_secret as client_id (legacy)
+    # Automatically extract client_id from refresh_token JWT if possible
+    if not client_id and refresh_token and '.' in refresh_token:
+        try:
+            import base64
+            import json
+            payload = refresh_token.split('.')[1]
+            payload += '=' * (4 - len(payload) % 4)
+            decoded = json.loads(base64.urlsafe_b64decode(payload))
+            if 'aud' in decoded:
+                client_id = decoded['aud']
+        except Exception:
+            pass
+
+    # If still no separate client_id, fall back to using client_secret as client_id (legacy)
     if not client_id:
         client_id = client_secret
 
@@ -108,6 +121,8 @@ def get_tastytrade_session(client_secret=None, refresh_token=None,
                 if resp.status_code in (200, 201) and "error_code" not in body and "error" not in body:
                     session_token = body.get("access_token") or body.get("session-token")
                     if session_token:
+                        if "access_token" in body:
+                            session_token = f"Bearer {session_token}"
                         session = _DirectSession(session_token, base_url, is_test)
                         _session_cache[cache_key] = session
                         return session, None
