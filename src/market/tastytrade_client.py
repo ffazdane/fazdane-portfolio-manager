@@ -57,10 +57,15 @@ def get_tastytrade_session(client_secret=None, refresh_token=None,
     environment = environment or os.getenv('TASTYTRADE_ENVIRONMENT', 'production')
     is_test = environment.lower() == 'sandbox'
 
-    client_secret = client_secret or os.getenv('TT_SECRET', '').strip()
+    client_id = os.getenv('TT_CLIENT_ID', '').strip()        # The UUID from OAuth App page
+    client_secret = client_secret or os.getenv('TT_SECRET', '').strip()  # The secret key
     refresh_token = refresh_token or os.getenv('TT_REFRESH', '').strip()
     username = username or os.getenv('TASTYTRADE_USERNAME', '').strip()
     password = password or os.getenv('TASTYTRADE_PASSWORD', '').strip()
+
+    # If no separate client_id, fall back to using client_secret as client_id (legacy)
+    if not client_id:
+        client_id = client_secret
 
     cache_key = f"{client_secret or username}_{environment}"
     if cache_key in _session_cache:
@@ -78,7 +83,8 @@ def get_tastytrade_session(client_secret=None, refresh_token=None,
                 json={
                     "grant_type": "refresh_token",
                     "refresh_token": refresh_token,
-                    "client_id": client_secret,
+                    "client_id": client_id,
+                    "client_secret": client_secret,
                 },
                 headers={"Content-Type": "application/json"},
                 timeout=15.0,
