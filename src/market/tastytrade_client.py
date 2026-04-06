@@ -272,7 +272,7 @@ def get_positions(session, account_number):
                     'quantity_direction': pos.get('quantity-direction', ''),
                     'close_price': float(pos.get('close-price', 0) or 0),
                     'average_open_price': float(pos.get('average-open-price', 0) or 0),
-                    'multiplier': int(pos.get('multiplier', 100) or 100),
+                    'multiplier': int(float(pos.get('multiplier', 100) or 100)),
                     'mark': float(pos.get('mark', 0) or 0),
                     'mark_price': float(pos.get('mark-price', 0) or 0),
                 })
@@ -292,7 +292,7 @@ def get_positions(session, account_number):
                     'quantity_direction': str(pos.quantity_direction),
                     'close_price': float(pos.close_price) if pos.close_price else None,
                     'average_open_price': float(pos.average_open_price) if pos.average_open_price else None,
-                    'multiplier': int(pos.multiplier) if pos.multiplier else 100,
+                    'multiplier': int(float(pos.multiplier)) if pos.multiplier else 100,
                     'mark': float(pos.mark) if hasattr(pos, 'mark') and pos.mark else None,
                     'mark_price': float(pos.mark_price) if hasattr(pos, 'mark_price') and pos.mark_price else None,
                 })
