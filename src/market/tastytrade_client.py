@@ -77,39 +77,51 @@ def get_tastytrade_session(client_secret=None, refresh_token=None,
             import httpx
             base_url = "https://api.cert.tastyworks.com" if is_test else "https://api.tastyworks.com"
 
-            # Exchange refresh token for a session token immediately
-            resp = httpx.post(
-                f"{base_url}/oauth/token",
-                json={
-                    "grant_type": "refresh_token",
-                    "refresh_token": refresh_token,
-                    "client_id": client_id,
-                    "client_secret": client_secret,
-                },
-                headers={"Content-Type": "application/json"},
-                timeout=15.0,
-            )
+            # Try multiple combinations since Tastytrade's docs are ambiguous
+            attempts = []
+            if client_id and client_id != client_secret:
+                # Attempt 1: Proper OAuth2 with separate client_id + client_secret
+                attempts.append({"grant_type": "refresh_token", "refresh_token": refresh_token,
+                                  "client_id": client_id, "client_secret": client_secret})
+                # Attempt 2: client_id only (some Tastytrade apps don't need client_secret)
+                attempts.append({"grant_type": "refresh_token", "refresh_token": refresh_token,
+                                  "client_id": client_id})
+            # Attempt 3: client_secret as client_id (legacy/fallback)
+            attempts.append({"grant_type": "refresh_token", "refresh_token": refresh_token,
+                              "client_id": client_secret, "client_secret": client_secret})
 
-            body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
-
-            if resp.status_code not in (200, 201) or "error_code" in body:
-                err_desc = body.get("error_description", body.get("error", resp.text[:200]))
-                return None, (
-                    f"❌ **OAuth2 failed:** {err_desc}\n\n"
-                    "**To fix:**\n"
-                    "1. Go to [my.tastytrade.com](https://my.tastytrade.com) → **My Profile → API**\n"
-                    "2. Click **Manage** on your OAuth app\n"
-                    "3. Click **Create Grant** to generate a fresh Refresh Token\n"
-                    "4. Update `TT_SECRET` and `TT_REFRESH` in Settings (or Streamlit Secrets)"
+            last_err = "No attempts made"
+            for payload in attempts:
+                # Use form-encoded (standard OAuth2 spec)
+                resp = httpx.post(
+                    f"{base_url}/oauth/token",
+                    data=payload,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    timeout=15.0,
                 )
+                body = {}
+                try:
+                    body = resp.json()
+                except Exception:
+                    pass
 
-            session_token = body.get("access_token") or body.get("session-token")
-            if not session_token:
-                return None, f"OAuth2 succeeded but no token found in response: {body}"
+                if resp.status_code in (200, 201) and "error_code" not in body and "error" not in body:
+                    session_token = body.get("access_token") or body.get("session-token")
+                    if session_token:
+                        session = _DirectSession(session_token, base_url, is_test)
+                        _session_cache[cache_key] = session
+                        return session, None
 
-            session = _DirectSession(session_token, base_url, is_test)
-            _session_cache[cache_key] = session
-            return session, None
+                last_err = body.get("error_description", body.get("error", resp.text[:300]))
+
+            return None, (
+                f"❌ **OAuth2 failed:** {last_err}\n\n"
+                "**Please verify in Streamlit Secrets:**\n"
+                f"- `TT_CLIENT_ID` = the UUID from the OAuth App page (e.g. `32fbe1b8-...`)\n"
+                f"- `TT_SECRET` = the Client Secret (click Regenerate if lost)\n"
+                f"- `TT_REFRESH` = click **Create Grant** on the SAME app page to generate\n\n"
+                "⚠️ The Refresh Token must be created from the **same OAuth app** as your Client ID!"
+            )
 
         except Exception as e:
             return None, f"OAuth2 login failed: {str(e)}"
