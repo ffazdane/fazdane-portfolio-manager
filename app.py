@@ -20,14 +20,30 @@ def init_app():
         init_database()
         st.session_state.db_initialized = True
 
-    if 'tastytrade_session' not in st.session_state:
-        st.session_state.tastytrade_session = None
-
     if 'selected_account' not in st.session_state:
         st.session_state.selected_account = None
 
     if 'last_refresh' not in st.session_state:
         st.session_state.last_refresh = None
+
+    if 'tastytrade_session' not in st.session_state:
+        st.session_state.tastytrade_session = None
+        # Attempt auto-connect on load
+        try:
+            from src.market.tastytrade_client import get_tastytrade_session, get_accounts
+            env = get_setting('tastytrade_environment', 'production')
+            
+            session = None
+            if os.getenv('TT_SECRET') and os.getenv('TT_REFRESH'):
+                session, _ = get_tastytrade_session(environment=env)
+            elif os.getenv('TASTYTRADE_USERNAME') and os.getenv('TASTYTRADE_PASSWORD'):
+                session, _ = get_tastytrade_session(environment=env)
+                
+            if session:
+                st.session_state.tastytrade_session = session
+                st.session_state.accounts, _ = get_accounts(session)
+        except Exception:
+            pass
 
 
 def main():
