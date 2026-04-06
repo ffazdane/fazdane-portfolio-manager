@@ -66,35 +66,48 @@ def get_tastytrade_session(client_secret=None, refresh_token=None,
     if cache_key in _session_cache:
         return _session_cache[cache_key], None
 
-    # ── Method 1: OAuth2 via SDK ──
+    # ── Method 1: OAuth2 — synchronous token exchange via REST ──
     if client_secret and refresh_token:
         try:
-            from tastytrade import Session
+            import httpx
+            base_url = "https://api.cert.tastyworks.com" if is_test else "https://api.tastyworks.com"
 
-            async def _create():
-                async with Session(client_secret, refresh_token, is_test=is_test) as session:
-                    # Validate the session
-                    valid = await session.validate()
-                    return session
+            # Exchange refresh token for a session token immediately
+            resp = httpx.post(
+                f"{base_url}/oauth/token",
+                json={
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                    "client_id": client_secret,
+                },
+                headers={"Content-Type": "application/json"},
+                timeout=15.0,
+            )
 
-            # For Streamlit, we can't use async context manager cleanly
-            # So create session without context manager and manage lifecycle manually
-            session = Session(client_secret, refresh_token, is_test=is_test)
+            body = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+
+            if resp.status_code not in (200, 201) or "error_code" in body:
+                err_desc = body.get("error_description", body.get("error", resp.text[:200]))
+                return None, (
+                    f"❌ **OAuth2 failed:** {err_desc}\n\n"
+                    "**To fix:**\n"
+                    "1. Go to [my.tastytrade.com](https://my.tastytrade.com) → **My Profile → API**\n"
+                    "2. Click **Manage** on your OAuth app\n"
+                    "3. Click **Create Grant** to generate a fresh Refresh Token\n"
+                    "4. Update `TT_SECRET` and `TT_REFRESH` in Settings (or Streamlit Secrets)"
+                )
+
+            session_token = body.get("access_token") or body.get("session-token")
+            if not session_token:
+                return None, f"OAuth2 succeeded but no token found in response: {body}"
+
+            session = _DirectSession(session_token, base_url, is_test)
             _session_cache[cache_key] = session
             return session, None
+
         except Exception as e:
-            err = str(e)
-            if 'invalid_grant' in err or 'Invalid JWT' in err:
-                return None, (
-                    "❌ **Invalid credentials.** The Client Secret or Refresh Token is incorrect.\n\n"
-                    "**To fix:**\n"
-                    "1. Go to [tastytrade.com](https://my.tastytrade.com) → **My Profile → API**\n"
-                    "2. Under **OAuth Applications**, click **Manage** on your app\n"
-                    "3. Click **Create Grant** to generate a new Refresh Token\n"
-                    "4. Copy both **Client Secret** and **Refresh Token** into the fields above\n\n"
-                    f"Technical error: `{err}`"
-                )
-            return None, f"OAuth2 login failed: {err}"
+            return None, f"OAuth2 login failed: {str(e)}"
+
 
     # ── Method 2: Username/Password (no 2FA) ──
     if username and password:
