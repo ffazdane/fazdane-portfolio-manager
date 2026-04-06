@@ -12,6 +12,52 @@ def setup_branding():
     Apply FazDane Analytics branding across the application.
     Must be called after st.set_page_config() on every page.
     """
+    # Force dark theme globally — overrides Streamlit Cloud's default light mode
+    st.markdown("""
+    <style>
+        /* ── Core backgrounds ── */
+        html, body, [data-testid="stAppViewContainer"], 
+        [data-testid="stApp"] {
+            background-color: #0E1117 !important;
+            color: #FAFAFA !important;
+        }
+        /* Sidebar */
+        [data-testid="stSidebar"], [data-testid="stSidebarContent"] {
+            background-color: #1A1F2E !important;
+        }
+        /* Header / top bar */
+        [data-testid="stHeader"] {
+            background-color: #0E1117 !important;
+        }
+        /* Main content block */
+        .main .block-container {
+            background-color: #0E1117 !important;
+        }
+        /* Inputs, selects, text areas */
+        [data-testid="stTextInput"] input,
+        [data-testid="stSelectbox"] div[data-baseweb],
+        [data-testid="stTextArea"] textarea,
+        [data-testid="stNumberInput"] input {
+            background-color: #1A1F2E !important;
+            color: #FAFAFA !important;
+            border-color: rgba(0, 212, 170, 0.3) !important;
+        }
+        /* Dropdown menus */
+        [data-baseweb="popover"], [data-baseweb="menu"] {
+            background-color: #1A1F2E !important;
+            color: #FAFAFA !important;
+        }
+        /* Metric labels */
+        [data-testid="stMetricLabel"], [data-testid="stMetricValue"] {
+            color: #FAFAFA !important;
+        }
+        /* Dividers */
+        hr { border-color: rgba(255,255,255,0.1) !important; }
+        /* Markdown text */
+        p, h1, h2, h3, h4, h5, h6, li { color: #FAFAFA !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
     logo_path = os.path.join(os.path.dirname(__file__), "..", "..", "logo.png")
     
     logo_html = ""
