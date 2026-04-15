@@ -1,0 +1,2 @@
+# This file keeps the data/imports/ directory tracked in git.
+# Import CSV files are excluded via .gitignore — they are persistent data, not code.

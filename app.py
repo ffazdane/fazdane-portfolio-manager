@@ -10,14 +10,31 @@ import sys
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from src.database.schema import init_database
+from src.database.schema import init_database, migrate_database
 from src.database.queries import get_setting
+from src.database.persistence import db_exists_and_has_data, restore_database
 
 
 def init_app():
     """Initialize the application on first load."""
     if 'db_initialized' not in st.session_state:
+
+        # ── Step 1: Restore database from persistent store if needed ──────────
+        # On Streamlit Cloud, every new container starts with no local DB file.
+        # We attempt a restore BEFORE touching the schema so we never overwrite
+        # live data with a fresh empty database.
+        if not db_exists_and_has_data():
+            success, message = restore_database()
+            st.session_state.db_restore_status = ("success" if success else "info", message)
+        else:
+            st.session_state.db_restore_status = None
+
+        # ── Step 2: Initialise schema (CREATE IF NOT EXISTS — always safe) ────
         init_database()
+
+        # ── Step 3: Apply any pending schema migrations (ALTER TABLE only) ────
+        migrate_database()
+
         st.session_state.db_initialized = True
 
     if 'selected_account' not in st.session_state:
@@ -194,6 +211,15 @@ def main():
         """, unsafe_allow_html=True)
 
         st.divider()
+
+        # Show restore status once on first load
+        restore = st.session_state.get("db_restore_status")
+        if restore:
+            level, msg = restore
+            if level == "success":
+                st.success(f"🗄️ DB restored: {msg}", icon="✅")
+            else:
+                st.info(f"🗄️ {msg}", icon="ℹ️")
 
         # Connection status
         if st.session_state.tastytrade_session:

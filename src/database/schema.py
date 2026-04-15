@@ -1,9 +1,22 @@
 """
 Database Schema
 Creates all tables for the portfolio management system.
+
+Migration workflow:
+  - Increment SCHEMA_VERSION when adding columns or new tables
+  - Add a _migration_vN() function with the ALTER TABLE statements
+  - Call migrate_database() on startup (app.py already does this)
+  - For Streamlit Cloud: run `python scripts/db_migrate.py migrate` BEFORE pushing code changes
 """
 
-from src.database.connection import get_db
+import logging
+from src.database.connection import get_db, get_db_readonly
+
+logger = logging.getLogger(__name__)
+
+# Increment this every time the schema changes (new column, new table, etc.)
+# Each version maps to one _migration_vN() function below.
+SCHEMA_VERSION = 1
 
 
 SCHEMA_SQL = """
@@ -227,6 +240,95 @@ def init_database():
     """Initialize the database with full schema. Safe to call multiple times."""
     with get_db() as conn:
         conn.executescript(SCHEMA_SQL)
+
+
+def get_schema_version() -> int:
+    """Read the current schema version from the settings table. Returns 0 if not set."""
+    try:
+        with get_db_readonly() as conn:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key = 'schema_version'"
+            ).fetchone()
+            if row:
+                return int(row['value'])
+    except Exception:
+        pass
+    return 0
+
+
+def set_schema_version(version: int):
+    """Persist the schema version in the settings table."""
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO settings (key, value, description)
+            VALUES ('schema_version', ?, 'Current database schema version')
+            ON CONFLICT(key) DO UPDATE
+                SET value = excluded.value,
+                    updated_at = datetime('now')
+            """,
+            (str(version),)
+        )
+
+
+def migrate_database() -> int:
+    """
+    Apply any pending schema migrations without destroying data.
+
+    Rules:
+      - Never DROP a table or column (use ALTER TABLE ADD COLUMN)
+      - Each migration is idempotent (wrap in try/except for 'duplicate column' errors)
+      - Migrations run in order; skips versions already applied
+
+    Returns:
+        The schema version after migration.
+    """
+    current = get_schema_version()
+
+    if current >= SCHEMA_VERSION:
+        return current  # Already up to date
+
+    logger.info(f"Applying schema migrations: v{current} → v{SCHEMA_VERSION}")
+
+    # Map version number → migration function
+    migrations = [
+        (1, _migration_v1),
+        # Add new entries here: (2, _migration_v2), (3, _migration_v3), ...
+    ]
+
+    for version, fn in migrations:
+        if current < version:
+            logger.info(f"Applying migration v{version}...")
+            fn()
+            set_schema_version(version)
+            logger.info(f"Migration v{version} complete.")
+
+    return SCHEMA_VERSION
+
+
+# ============================================================
+# Migration Functions
+# One function per version. Never drop columns or tables.
+# ============================================================
+
+def _migration_v1():
+    """
+    v1: Initial schema — no structural changes needed.
+    init_database() already creates all tables via SCHEMA_SQL.
+    """
+    pass
+
+
+# def _migration_v2():
+#     """
+#     v2: Example — add a 'tags' column to trades.
+#     Pattern: wrap ALTER TABLE in try/except in case it already ran.
+#     """
+#     with get_db() as conn:
+#         try:
+#             conn.execute("ALTER TABLE trades ADD COLUMN tags TEXT")
+#         except Exception:
+#             pass  # Column already exists — safe to ignore
 
 
 def reset_database():

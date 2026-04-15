@@ -1,3 +1,0 @@
-﻿Date,Type,Sub Type,Action,Symbol,Instrument Type,Description,Value,Quantity,Average Price,Commissions,Fees,Multiplier,Root Symbol,Underlying Symbol,Expiration Date,Strike Price,Call or Put,Order #,Total,Currency
-2026-03-30T12:47:15-0500,Trade,Sell to Open,SELL_TO_OPEN,QQQ   260430C00590000,Equity Option,Sold 1 QQQ 04/30/26 Call 590.00 @ 6.42,642,1,642,-1,-0.12,100,QQQ,QQQ,4/30/2026,590,CALL,450613785,640.88,USD
-2026-03-30T12:47:15-0500,Trade,Buy to Open,BUY_TO_OPEN,QQQ   260430C00595000,Equity Option,Bought 1 QQQ 04/30/26 Call 595.00 @ 4.92,-492,1,-492,-1,-0.12,100,QQQ,QQQ,4/30/2026,595,CALL,450613785,-493.12,USD

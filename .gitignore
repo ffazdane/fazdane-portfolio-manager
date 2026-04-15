@@ -10,5 +10,16 @@ venv/
 .venv/
 pip-log.txt
 pip-delete-this-directory.txt
-portfolio.db
 .DS_Store
+
+# Database files — never commit the live database
+*.db
+*.db-shm
+*.db-wal
+
+# Import files — persistent data, not code — never commit
+data/imports/*
+!data/imports/.gitkeep
+
+# Local DB backups — machine-specific, not code
+data/backups/
