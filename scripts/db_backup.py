@@ -33,14 +33,14 @@ def main():
 
     from src.database.persistence import backup_database, DB_PATH
 
-    print(f"\n📦  Portfolio Database Backup")
-    print(f"{'─' * 50}")
+    print("\nPortfolio Database Backup")
+    print("=" * 50)
     print(f"Source:  {DB_PATH}")
     print(f"Reason:  {args.reason}")
     print()
 
     if not os.path.exists(DB_PATH):
-        print("❌  No database file found. Nothing to backup.")
+        print("[ERROR] No database file found. Nothing to backup.")
         sys.exit(1)
 
     size_kb = os.path.getsize(DB_PATH) / 1024
@@ -49,9 +49,9 @@ def main():
     success, message = backup_database(reason=args.reason)
 
     if success:
-        print(f"✅  {message}")
+        print(f"[OK] {message}")
     else:
-        print(f"❌  {message}")
+        print(f"[ERROR] {message}")
         sys.exit(1)
 
 
