@@ -50,7 +50,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("## 🦅 FazDane Analytics | Portfolio Monitor")
+st.markdown("## 🦅 FazDane Analytics | Portfolio Monitor <span style='font-size:14px; color:#888; font-weight:normal; margin-left:15px;'>(Source: 🔴 Tastytrade | 🔵 Schwab)</span>", unsafe_allow_html=True)
 st.caption("Monitoring short strike safety and deviation distances across all active strategies.")
 
 # Fetch Data
@@ -182,9 +182,10 @@ for trade in active_trades:
         if leg['status'] != 'OPEN' or not leg['expiry']:
             continue
             
-        key = (leg['underlying'], leg['expiry'])
+        key = (leg['underlying'], leg['expiry'], tid)
         if key not in grouped_legs:
             grouped_legs[key] = {
+                'broker': _safe(trade, 'broker', ''),
                 'legs': [],
                 'pnl': 0,
                 'credit': 0,
@@ -205,7 +206,7 @@ for trade in active_trades:
 
 table_data = []
 
-for (underlying, expiry), data in grouped_legs.items():
+for (underlying, expiry, tid), data in grouped_legs.items():
     legs = data['legs']
     
     # Find all strikes for each leg type
@@ -251,8 +252,12 @@ for (underlying, expiry), data in grouped_legs.items():
         strat_name = "Iron Condor (Synthetic)"
         
     net_change = quote.get('net_change')
+
+    raw_broker = data['broker'].lower()
+    broker_dot = '🔴' if 'tasty' in raw_broker else ('🔵' if 'schwab' in raw_broker else '⚪')
     
     table_data.append({
+        'Source': broker_dot,
         'Symbol': underlying,
         'Strategy': strat_name,
         'Expiry': expiry,

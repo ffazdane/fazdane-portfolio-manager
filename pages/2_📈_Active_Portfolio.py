@@ -34,7 +34,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("## 📈 Active Portfolio")
+st.markdown("## 📈 Active Portfolio <span style='font-size:14px; color:#888; font-weight:normal; margin-left:15px;'>(Source: 🔴 Tastytrade | 🔵 Schwab)</span>", unsafe_allow_html=True)
 
 account = st.session_state.get('selected_account')
 
@@ -107,11 +107,11 @@ for trade in trades:
 
     raw_broker = _safe(trade, 'broker', '').lower()
     if 'tasty' in raw_broker:
-        broker_short = 'Tasty'
+        broker_short = '🔴'
     elif 'schwab' in raw_broker:
-        broker_short = 'Schwab'
+        broker_short = '🔵'
     else:
-        broker_short = raw_broker[:6].capitalize()
+        broker_short = '⚪'
 
     trade_rows.append({
         'trade_id': trade['trade_id'],
