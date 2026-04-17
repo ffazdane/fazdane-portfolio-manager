@@ -64,8 +64,9 @@ if underlyings:
         from src.market.yahoo_provider import YahooProvider
         
         # 1. Try Tastytrade API
-        tt_session, _ = get_tastytrade_session()
+        tt_session, tt_error = get_tastytrade_session()
         fetched_tt = {}
+        tt_prices = {}   # Track what TT actually returned
         if tt_session:
             fetched_tt, _ = get_market_quotes_batch(tt_session, underlyings)
             for u in underlyings:
@@ -73,16 +74,82 @@ if underlyings:
                 if q and q.get('option_mark'):
                     if u not in quotes: quotes[u] = {}
                     quotes[u]['underlying_price'] = q['option_mark']
+                    tt_prices[u] = q['option_mark']
         
-        # 2. Fallback to Yahoo Finance for missing quotes
-        missing = [u for u in underlyings if u not in quotes or not quotes.get(u, {}).get('underlying_price')]
-        if missing:
-            yp = YahooProvider()
-            y_quotes = yp.get_batch_underlying_prices(missing)
-            for u, px in y_quotes.items():
-                if u not in quotes: quotes[u] = {}
-                quotes[u]['underlying_price'] = px
-                
+        # 2. Add Yahoo Finance metrics (Current Px fallback + Net Change)
+        yp = YahooProvider()
+        daily_metrics = yp.get_daily_metrics_batch(underlyings)
+        for u, d in daily_metrics.items():
+            if u not in quotes: quotes[u] = {}
+            if not quotes[u].get('underlying_price'):
+                quotes[u]['underlying_price'] = d.get('price')
+            quotes[u]['net_change'] = d.get('net_change')
+
+    # ── Data Source Status Bar ──────────────────────────────────────────
+    tt_count  = len(tt_prices)
+    yah_count = sum(1 for u in underlyings
+                    if u not in tt_prices and quotes.get(u, {}).get('underlying_price'))
+    no_count  = len(underlyings) - tt_count - yah_count
+
+    if tt_session:
+        conn_badge = (
+            '<span style="background:#00D4AA22;color:#00D4AA;border:1px solid #00D4AA55;'
+            'padding:3px 12px;border-radius:20px;font-size:12px;font-weight:700;">'
+            'LIVE &mdash; tastytrade</span>'
+        )
+    else:
+        conn_badge = (
+            '<span style="background:#FFA42122;color:#FFA421;border:1px solid #FFA42155;'
+            'padding:3px 12px;border-radius:20px;font-size:12px;font-weight:700;">'
+            'DELAYED &mdash; Yahoo Finance</span>'
+        )
+
+    src_pills = ""
+    if tt_count:
+        src_pills += (f'<span style="background:#00D4AA22;color:#00D4AA;border:1px solid '
+                      f'#00D4AA44;padding:2px 10px;border-radius:14px;font-size:11px;'
+                      f'margin-right:6px;">&#9679; {tt_count} live</span>')
+    if yah_count:
+        src_pills += (f'<span style="background:#FFA42122;color:#FFA421;border:1px solid '
+                      f'#FFA42144;padding:2px 10px;border-radius:14px;font-size:11px;'
+                      f'margin-right:6px;">&#9679; {yah_count} Yahoo</span>')
+    if no_count:
+        src_pills += (f'<span style="background:#FF4B4B22;color:#FF4B4B;border:1px solid '
+                      f'#FF4B4B44;padding:2px 10px;border-radius:14px;font-size:11px;">'
+                      f'&#10005; {no_count} missing</span>')
+
+    st.markdown(f"""
+    <div style="display:flex;align-items:center;gap:12px;
+                background:#1A1F2E;border:1px solid rgba(255,255,255,0.07);
+                border-radius:10px;padding:10px 18px;margin-bottom:16px;">
+        <div style="font-size:12px;color:#888;margin-right:4px;">Data source:</div>
+        {conn_badge}
+        <div style="flex:1;"></div>
+        {src_pills}
+    </div>
+    """, unsafe_allow_html=True)
+
+    with st.expander("Per-symbol price sources", expanded=False):
+        if tt_error and not tt_session:
+            st.warning(f"Tastytrade: {tt_error}")
+        rows = []
+        for u in sorted(underlyings):
+            q  = quotes.get(u, {})
+            px = q.get('underlying_price')
+            nc = q.get('net_change')
+            if u in tt_prices:
+                src = "Live (tastytrade)"
+            elif px:
+                src = "Delayed (Yahoo Finance)"
+            else:
+                src = "No price"
+            rows.append({'Symbol': u, 'Source': src,
+                         'Price': f"{px:.2f}" if px else 'n/a',
+                         'Net Chg': f"{nc:+.2f}" if nc is not None else 'n/a'})
+        if rows:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    # ───────────────────────────────────────────────────────────────────────
+
 # Fetch earnings for display
 earnings_dates = fetch_earnings_dates(underlyings)
 
@@ -183,6 +250,8 @@ for (underlying, expiry), data in grouped_legs.items():
     if len(data['strategies']) > 1 and put_short_strike and call_short_strike:
         strat_name = "Iron Condor (Synthetic)"
         
+    net_change = quote.get('net_change')
+    
     table_data.append({
         'Symbol': underlying,
         'Strategy': strat_name,
@@ -194,6 +263,7 @@ for (underlying, expiry), data in grouped_legs.items():
         'Call Short': f"{call_short_strike:.2f}" if call_short_strike else '—',
         'Call Long': f"{call_long_strike:.2f}" if call_long_strike else '—',
         'Current Px': f"{current_price:.2f}" if current_price else '—',
+        'Net Change': f"{net_change:+.2f}" if net_change is not None else '—',
         'Pts to Put': f"{pts_to_put_short:.2f}" if pts_to_put_short is not None else '—',
         'Pts to Call': f"{pts_to_call_short:.2f}" if pts_to_call_short is not None else '—',
         'Credit Recv': format_currency(data['credit']),
@@ -225,8 +295,28 @@ if table_data:
         except ValueError:
             return ''
             
+    def highlight_daily(row):
+        styles = [''] * len(row)
+        try:
+            nc = str(row['Net Change'])
+            color = ''
+            if nc.startswith('+'):
+                color = 'color: #00D4AA; font-weight: bold;'
+            elif nc.startswith('-'):
+                color = 'color: #FF4B4B; font-weight: bold;'
+            
+            if color:
+                px_idx = df.columns.get_loc('Current Px')
+                nc_idx = df.columns.get_loc('Net Change')
+                styles[px_idx] = color
+                styles[nc_idx] = color
+        except:
+            pass
+        return styles
+            
     def styling(styler):
-        return styler.map(highlight_status, subset=['Status']) \
+        return styler.apply(highlight_daily, axis=1) \
+                     .map(highlight_status, subset=['Status']) \
                      .map(highlight_distances, subset=['Pts to Put', 'Pts to Call'])
     
     st.dataframe(df.style.pipe(styling), use_container_width=True, hide_index=True)

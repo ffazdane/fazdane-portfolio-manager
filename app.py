@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from src.database.schema import init_database, migrate_database
 from src.database.queries import get_setting
 from src.database.persistence import db_exists_and_has_data, restore_database
+from src.utils.branding import _inject_sidebar_brand
 
 
 def init_app():
@@ -193,23 +194,11 @@ def main():
     </style>
     """, unsafe_allow_html=True)
 
-    # Sidebar branding
-    with st.sidebar:
-        st.markdown("""
-        <div style="text-align: center; padding: 20px 0;">
-            <h1 style="font-size: 24px; font-weight: 700; 
-                       background: linear-gradient(135deg, #00D4AA, #4169E1);
-                       -webkit-background-clip: text;
-                       -webkit-text-fill-color: transparent;
-                       margin-bottom: 4px;">
-                📊 Portfolio Manager
-            </h1>
-            <p style="color: #666; font-size: 12px; letter-spacing: 2px;">
-                OPTIONS MONITOR
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
+    # Sidebar branding — logo + FAZDANE ANALYTICS text block
+    logo_path = os.path.join(os.path.dirname(__file__), "logo.png")
+    _inject_sidebar_brand(logo_path)
 
+    with st.sidebar:
         st.divider()
 
         # Show restore status once on first load

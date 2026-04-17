@@ -51,7 +51,7 @@ with col1:
     )
 with col2:
     sort_by = st.selectbox("Sort By", [
-        "Open Date (Newest)", "Open Date (Oldest)", "DTE (Nearest)",
+        "DTE (Nearest)", "Open Date (Newest)", "Open Date (Oldest)",
         "Unrealized P&L", "Underlying (A-Z)"
     ])
 with col3:
@@ -67,6 +67,14 @@ if search:
     trades = [t for t in trades if search.upper() in (t['underlying'] or '').upper()]
 
 # Build display data
+underlyings_set = list(set([t['underlying'] for t in trades]))
+daily_metrics = {}
+if underlyings_set:
+    with st.spinner("Fetching market data..."):
+        from src.market.yahoo_provider import YahooProvider
+        yp = YahooProvider()
+        daily_metrics = yp.get_daily_metrics_batch(underlyings_set)
+
 trade_rows = []
 for trade in trades:
     legs = get_trade_legs(trade['trade_id'])
@@ -114,6 +122,7 @@ for trade in trades:
         'Long Strike': f"${long_strike:.0f}" if long_strike else '—',
         'Legs': _safe(trade, 'leg_count', len(legs)),
         'Notes': f"📝{_safe(trade, 'note_count', 0)}" if _safe(trade, 'note_count', 0) > 0 else '—',
+        'metrics': daily_metrics.get(trade['underlying'], {})
     })
 
 # Sort
@@ -135,34 +144,46 @@ if trade_rows:
     # Display table
     for row in trade_rows:
         with st.container():
-            cols = st.columns([0.5, 1.2, 1.5, 1, 1, 0.7, 1, 1, 1, 0.8, 0.5])
+            cols = st.columns([0.5, 1.0, 1.8, 1.3, 1, 1, 0.7, 1, 1, 1, 0.8, 0.5])
             
             with cols[0]:
                 st.write(row['Status'])
             with cols[1]:
                 st.markdown(f"**{row['Underlying']}**")
             with cols[2]:
-                st.caption(row['Strategy'])
+                m = row.get('metrics', {})
+                px = m.get('price')
+                nc = m.get('net_change')
+                atr = m.get('atr')
+                if px is not None and nc is not None:
+                    color = "#00D4AA" if nc >= 0 else "#FF4B4B"
+                    st.markdown(f"**${px:.2f}** <span style='color:{color}; font-weight:600;'>{nc:+.2f}</span>", unsafe_allow_html=True)
+                else:
+                    st.write("—")
+                if atr is not None:
+                    st.caption(f"ATR: {atr:.2f}")
             with cols[3]:
-                st.caption(f"Opened: {row['Open Date']}")
+                st.caption(row['Strategy'])
             with cols[4]:
-                st.caption(f"Exp: {row['Expiry']}")
+                st.caption(f"Opened: {row['Open Date']}")
             with cols[5]:
+                st.caption(f"Exp: {row['Expiry']}")
+            with cols[6]:
                 dte_color = "#FF4B4B" if row['DTE'] <= 7 else "#FFA500" if row['DTE'] <= 21 else "#00D4AA"
                 st.markdown(f'<span style="color: {dte_color}; font-weight: 600;">{row["DTE_display"]}</span>', 
                            unsafe_allow_html=True)
-            with cols[6]:
-                st.caption(f"Entry: {row['Entry']}")
             with cols[7]:
+                st.caption(f"Entry: {row['Entry']}")
+            with cols[8]:
                 pnl = row['Unrealized P&L']
                 color = "#00D4AA" if pnl >= 0 else "#FF4B4B"
                 st.markdown(f'<span style="color: {color}; font-weight: 600;">${pnl:+,.2f}</span>',
                            unsafe_allow_html=True)
-            with cols[8]:
-                st.caption(f"S: {row['Short Strike']} | L: {row['Long Strike']}")
             with cols[9]:
-                st.caption(row['Notes'])
+                st.caption(f"S: {row['Short Strike']} | L: {row['Long Strike']}")
             with cols[10]:
+                st.caption(row['Notes'])
+            with cols[11]:
                 if st.button("🔍", key=f"detail_{row['trade_id']}", help="View trade details"):
                     st.session_state.selected_trade_id = row['trade_id']
                     st.switch_page("pages/3_🔍_Trade_Detail.py")
