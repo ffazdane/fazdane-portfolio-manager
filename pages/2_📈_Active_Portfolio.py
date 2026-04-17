@@ -105,8 +105,17 @@ for trade in trades:
         except (KeyError, IndexError):
             return default
 
+    raw_broker = _safe(trade, 'broker', '').lower()
+    if 'tasty' in raw_broker:
+        broker_short = 'Tasty'
+    elif 'schwab' in raw_broker:
+        broker_short = 'Schwab'
+    else:
+        broker_short = raw_broker[:6].capitalize()
+
     trade_rows.append({
         'trade_id': trade['trade_id'],
+        'Broker': broker_short,
         'Status': status_badge(trade['status']),
         'Underlying': trade['underlying'],
         'Strategy': strategy_display_name(trade['strategy_type']),
@@ -144,13 +153,15 @@ if trade_rows:
     # Display table
     for row in trade_rows:
         with st.container():
-            cols = st.columns([0.5, 1.0, 1.8, 1.3, 1, 1, 0.7, 1, 1, 1, 0.8, 0.5])
+            cols = st.columns([0.5, 1.0, 0.8, 1.6, 1.2, 1.0, 1.0, 0.7, 1.0, 1.0, 1.0, 0.8, 0.5])
             
             with cols[0]:
                 st.write(row['Status'])
             with cols[1]:
                 st.markdown(f"**{row['Underlying']}**")
             with cols[2]:
+                st.caption(row['Broker'])
+            with cols[3]:
                 m = row.get('metrics', {})
                 px = m.get('price')
                 nc = m.get('net_change')
@@ -162,28 +173,28 @@ if trade_rows:
                     st.write("—")
                 if atr is not None:
                     st.caption(f"ATR: {atr:.2f}")
-            with cols[3]:
-                st.caption(row['Strategy'])
             with cols[4]:
-                st.caption(f"Opened: {row['Open Date']}")
+                st.caption(row['Strategy'])
             with cols[5]:
-                st.caption(f"Exp: {row['Expiry']}")
+                st.caption(f"Opened: {row['Open Date']}")
             with cols[6]:
+                st.caption(f"Exp: {row['Expiry']}")
+            with cols[7]:
                 dte_color = "#FF4B4B" if row['DTE'] <= 7 else "#FFA500" if row['DTE'] <= 21 else "#00D4AA"
                 st.markdown(f'<span style="color: {dte_color}; font-weight: 600;">{row["DTE_display"]}</span>', 
                            unsafe_allow_html=True)
-            with cols[7]:
-                st.caption(f"Entry: {row['Entry']}")
             with cols[8]:
+                st.caption(f"Entry: {row['Entry']}")
+            with cols[9]:
                 pnl = row['Unrealized P&L']
                 color = "#00D4AA" if pnl >= 0 else "#FF4B4B"
                 st.markdown(f'<span style="color: {color}; font-weight: 600;">${pnl:+,.2f}</span>',
                            unsafe_allow_html=True)
-            with cols[9]:
-                st.caption(f"S: {row['Short Strike']} | L: {row['Long Strike']}")
             with cols[10]:
-                st.caption(row['Notes'])
+                st.caption(f"S: {row['Short Strike']} | L: {row['Long Strike']}")
             with cols[11]:
+                st.caption(row['Notes'])
+            with cols[12]:
                 if st.button("🔍", key=f"detail_{row['trade_id']}", help="View trade details"):
                     st.session_state.selected_trade_id = row['trade_id']
                     st.switch_page("pages/3_🔍_Trade_Detail.py")
