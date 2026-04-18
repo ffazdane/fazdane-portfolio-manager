@@ -47,6 +47,18 @@ def get_all_settings():
 def insert_import_file(filename, broker, file_hash, row_count, source_type='file'):
     """Insert a new import file record. Returns import_id."""
     with get_db() as conn:
+        # Check if hash already exists to avoid UNIQUE constraint error on re-import
+        cursor = conn.execute("SELECT import_id FROM raw_import_files WHERE file_hash = ?", (file_hash,))
+        row = cursor.fetchone()
+        
+        if row:
+            import_id = row["import_id"]
+            conn.execute(
+                "UPDATE raw_import_files SET processed_status = 'processing', row_count = ?, filename = ? WHERE import_id = ?",
+                (row_count, filename, import_id)
+            )
+            return import_id
+            
         cursor = conn.execute(
             """INSERT INTO raw_import_files (filename, broker, file_hash, row_count, source_type, processed_status)
                VALUES (?, ?, ?, ?, ?, 'processing')""",
