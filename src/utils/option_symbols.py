@@ -81,13 +81,36 @@ def parse_tastytrade_description(description):
     return None
 
 
+def parse_generic_option_symbol(symbol):
+    """
+    Parse a generic readable option symbol.
+    Format: TICKER MM/DD/YYYY STRIKE P/C
+    Examples:
+        'NFLX 04/24/2026 107.00 C'
+        'SPY 12/20/2024 450 P'
+    """
+    if not symbol:
+        return None
+    
+    symbol = symbol.strip().upper()
+    # Underlying, Date (MM/DD/YYYY or MM/DD/YY), Strike, P/C
+    match = re.match(
+        r'^([A-Z0-9]{1,6})\s+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s+([\d\.]+)\s+([PC])$',
+        symbol
+    )
+    if match:
+        return _build_from_match(match.group(1), match.group(2).replace('-', '/'), match.group(4), match.group(3))
+    
+    return None
+
+
 def parse_schwab_description(description):
     """
     Parse Schwab-style option description.
     Examples:
         'AAPL OCT 17 2025 150.00 C'
         'SPY DEC 20 2024 430.00 P'
-        'BUY TO OPEN 1 AAPL OCT 17 2025 150.00 C'
+        'CALL NETFLIX INC $107 EXP 04/24/26'
     Returns dict or None.
     """
     if not description:
@@ -95,6 +118,21 @@ def parse_schwab_description(description):
 
     description = description.strip().upper()
 
+    # Pattern 1: CALL/PUT UNDERLYING $STRIKE EXP MM/DD/YY
+    match = re.search(
+        r'^(CALL|PUT)\s+(.*?)\s+\$(\d+\.?\d*)\s+EXP\s+(\d{1,2}/\d{1,2}/\d{2,4})',
+        description
+    )
+    if match:
+        put_call = 'C' if match.group(1) == 'CALL' else 'P'
+        # Underlying is tricky in this format, try to extract from description or just use symbol later
+        # But we'll try to get the first word of the '.*? ' part
+        underlying_desc = match.group(2).split()[0]
+        strike = match.group(3)
+        date_str = match.group(4)
+        return _build_from_match(underlying_desc, date_str, put_call, strike)
+
+    # Pattern 2: Standard Schwab format
     # Remove action prefix
     description = re.sub(
         r'^(BUY|SELL)\s+(TO\s+)?(OPEN|CLOSE)\s+\d+\s+',

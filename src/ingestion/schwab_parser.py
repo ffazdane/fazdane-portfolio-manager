@@ -109,8 +109,8 @@ class SchwabParser(BrokerParser):
             option_details = parse_occ_symbol(symbol)
             
         if not option_details:
-            from src.utils.option_symbols import parse_tastytrade_description
-            option_details = parse_tastytrade_description(symbol)
+            from src.utils.option_symbols import parse_tastytrade_description, parse_generic_option_symbol
+            option_details = parse_tastytrade_description(symbol) or parse_generic_option_symbol(symbol)
 
         is_option = option_details is not None or self._looks_like_option(action, description)
 
