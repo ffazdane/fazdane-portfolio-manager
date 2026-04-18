@@ -111,11 +111,12 @@ class ExcelLegParser(BrokerParser):
 
         # Try to extract option details from description or symbol if not directly available
         if not strike or not expiry:
-            option_details = (
-                parse_tastytrade_description(description) or
-                parse_schwab_description(description) or
-                parse_occ_symbol(symbol) if symbol else None
-            )
+            option_details = None
+            if description:
+                option_details = parse_tastytrade_description(description) or parse_schwab_description(description)
+            if not option_details and symbol:
+                option_details = parse_tastytrade_description(symbol) or parse_schwab_description(symbol) or parse_occ_symbol(symbol)
+                
             if option_details:
                 strike = strike or option_details.get('strike')
                 expiry = expiry or option_details.get('expiry')
