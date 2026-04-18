@@ -12,14 +12,17 @@ def check_password():
         """Checks whether a password entered by the user is correct."""
         expected_password = None
         
-        # Try to get password from Streamlit secrets
+        # Try to get password from Streamlit secrets by searching everywhere
         if hasattr(st, "secrets"):
-            expected_password = st.secrets.get("APP_PASSWORD")
-            # Fallback: Check if they accidentally put it under [database.github]
-            if not expected_password and "database" in st.secrets:
-                db_secrets = st.secrets["database"]
-                if "github" in db_secrets:
-                    expected_password = db_secrets["github"].get("APP_PASSWORD")
+            def find_password(d):
+                if "APP_PASSWORD" in d:
+                    return d["APP_PASSWORD"]
+                for k, v in d.items():
+                    if isinstance(v, dict) or hasattr(v, "items"):
+                        res = find_password(v)
+                        if res: return res
+                return None
+            expected_password = find_password(st.secrets)
                     
         # Fallback to env variable
         if not expected_password:
@@ -27,7 +30,8 @@ def check_password():
 
         if not expected_password:
             # If no password is set anywhere, show an error.
-            st.error("Authentication is not configured. Please set APP_PASSWORD in Streamlit Secrets at the very top of the box.")
+            keys_found = list(st.secrets.keys()) if hasattr(st, "secrets") else "None"
+            st.error(f"Authentication is not configured. Keys found in secrets: {keys_found}. Please set APP_PASSWORD at the very top of the box.")
             return
 
         if st.session_state["password"] == expected_password:
