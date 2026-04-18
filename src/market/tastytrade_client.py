@@ -228,7 +228,7 @@ def clear_session_cache():
 def get_accounts(session):
     """Get all accounts."""
     try:
-        if isinstance(session, _DirectSession):
+        if type(session).__name__ == '_DirectSession':
             data = session._get("/customers/me/accounts")
             items = data.get('data', {}).get('items', [])
             return [
@@ -258,7 +258,7 @@ def get_accounts(session):
 def get_positions(session, account_number):
     """Get current positions."""
     try:
-        if isinstance(session, _DirectSession):
+        if type(session).__name__ == '_DirectSession':
             data = session._get(f"/accounts/{account_number}/positions")
             items = data.get('data', {}).get('items', [])
             result = []
@@ -304,7 +304,7 @@ def get_positions(session, account_number):
 def get_balances(session, account_number):
     """Get account balances."""
     try:
-        if isinstance(session, _DirectSession):
+        if type(session).__name__ == '_DirectSession':
             data = session._get(f"/accounts/{account_number}/balances")
             bal = data.get('data', {})
             return {
@@ -330,7 +330,7 @@ def get_balances(session, account_number):
 def get_transactions(session, account_number, start_date=None, end_date=None):
     """Get account transactions."""
     try:
-        if isinstance(session, _DirectSession):
+        if type(session).__name__ == '_DirectSession':
             params = {}
             if start_date:
                 params['start-date'] = str(start_date)

@@ -10,7 +10,11 @@ from datetime import datetime
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.database.schema import init_database
+from src.utils.auth import check_password
+if not check_password():
+    st.stop()
+
+from app import init_app
 from src.database.queries import get_import_history, insert_normalized_transactions_bulk
 from src.ingestion.file_manager import compute_file_hash, is_duplicate_file, archive_file, register_import
 from src.ingestion.tastytrade_parser import TastytradeParser
@@ -23,7 +27,7 @@ from src.engine.strategy_grouper import group_positions_into_trades, save_trades
 st.set_page_config(page_title="Imports | Portfolio Manager", page_icon="📥", layout="wide")
 from src.utils.branding import setup_branding
 setup_branding()
-init_database()
+init_app()
 
 st.markdown("""
 <style> #MainMenu {visibility: hidden;} footer {visibility: hidden;} </style>
@@ -150,6 +154,10 @@ with tab1:
 
                         from src.database.queries import update_import_status
                         update_import_status(import_id, 'completed', f"{new_count} new transactions")
+                        
+                        from src.database.persistence import backup_database
+                        backup_database(reason=f"file import {uploaded_file.name}")
+                        
                         st.rerun()
         except Exception as e:
             st.error(f"Failed to parse file: {e}")
@@ -284,6 +292,9 @@ with tab2:
                             trade_ids = save_trades_to_db(trades)
                             st.success(f"✅ Imported {len(trade_ids)} strategy groups into your Active Portfolio!")
                             st.info("Head over to the **Active Portfolio** tab to see your live grouped trades.")
+                            
+                            from src.database.persistence import backup_database
+                            backup_database(reason="api import live positions")
 
         else:
             c1, c2 = st.columns(2)

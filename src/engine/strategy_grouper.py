@@ -52,9 +52,24 @@ def group_positions_into_trades(positions):
         date_groups = _group_by_date_proximity(group_positions)
 
         for sub_group in date_groups:
-            trade = _identify_strategy(sub_group, account, broker, underlying)
-            if trade:
-                trades.append(trade)
+            # Separate fully closed legs from open/partially-closed legs
+            closed_legs = [p for p in sub_group if p.get('is_fully_closed')]
+            open_legs = [p for p in sub_group if not p.get('is_fully_closed')]
+
+            # Create historical trade for closed legs
+            if closed_legs:
+                closed_trade = _identify_strategy(closed_legs, account, broker, underlying)
+                if closed_trade:
+                    # Ensure status reflects closed state regardless of identification
+                    realized = closed_trade.get('realized_pnl', 0)
+                    closed_trade['status'] = 'CLOSED_WIN' if realized >= 0 else 'CLOSED_LOSS'
+                    trades.append(closed_trade)
+
+            # Create active trade for remaining open legs
+            if open_legs:
+                open_trade = _identify_strategy(open_legs, account, broker, underlying)
+                if open_trade:
+                    trades.append(open_trade)
 
     return trades
 

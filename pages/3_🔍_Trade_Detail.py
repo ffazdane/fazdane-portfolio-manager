@@ -9,7 +9,11 @@ from datetime import datetime
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.database.schema import init_database
+from src.utils.auth import check_password
+if not check_password():
+    st.stop()
+
+from app import init_app
 from src.database.queries import get_trade_by_id, get_trade_legs, get_active_trades, get_all_trades
 from src.utils.formatting import (
     format_currency, format_date, format_dte, format_delta, format_theta,
@@ -23,7 +27,7 @@ from src.journal.journal_manager import (
 st.set_page_config(page_title="Trade Detail | Portfolio Manager", page_icon="🔍", layout="wide")
 from src.utils.branding import setup_branding
 setup_branding()
-init_database()
+init_app()
 
 st.markdown("""
 <style>
@@ -184,9 +188,17 @@ if legs:
         
         from src.database.queries import update_trade_leg
         import datetime
+        
+        # Draw Headers
+        hcols = st.columns([1.5, 0.8, 0.8, 0.6, 1.2, 0.8, 0.8, 2.5])
+        headers = ["Symbol", "Side", "Strike", "Type", "Expiry", "Entry Px", "Exit Px", "Actions"]
+        for c, h in zip(hcols, headers):
+            with c:
+                st.caption(f"**{h}**")
+                
         for leg in legs:
             lid = leg['leg_id']
-            cols = st.columns([2, 1, 1, 1, 2, 2])
+            cols = st.columns([1.5, 0.8, 0.8, 0.6, 1.2, 0.8, 0.8, 2.5])
             with cols[0]:
                 st.write(f"**{leg['symbol']}**")
             with cols[1]:
@@ -208,32 +220,62 @@ if legs:
                     
                 n_exp = st.date_input("Expiry", value=def_date, key=f"exp_{lid}", label_visibility="collapsed")
             with cols[5]:
+                # NEW: Manual Entry Px
+                cur_entry = _safe(leg, 'entry_price')
+                cur_entry_str = f"{cur_entry:.2f}" if cur_entry is not None else ""
+                n_entry_px = st.text_input("Entry Px", value=cur_entry_str, key=f"ent_{lid}", label_visibility="collapsed", placeholder="Entry Px")
+            with cols[6]:
+                # NEW: Manual Exit Px
+                cur_exit = _safe(leg, 'exit_price')
+                cur_exit_str = f"{cur_exit:.2f}" if cur_exit is not None else ""
+                n_exit_px = st.text_input("Exit Px", value=cur_exit_str, key=f"exit_{lid}", label_visibility="collapsed", placeholder="Exit Px")
+            with cols[7]:
                 l_dict = dict(leg)
                 leg_status = l_dict.get('status', 'OPEN')
                 is_closed = leg_status != 'OPEN'
                 
-                b_cols = st.columns([2, 1, 1])
+                b_cols = st.columns([2, 1, 1, 1])
                 with b_cols[0]:
                     if st.button("Save", key=f"save_{lid}", use_container_width=True):
                         try:
-                            update_trade_leg(lid, {
+                            updates = {
                                 'side': n_sid,
                                 'strike': float(n_str) if n_str else None,
                                 'option_type': n_typ if n_typ else None,
                                 'expiry': n_exp.strftime('%Y-%m-%d') if isinstance(n_exp, datetime.date) else None
-                            })
+                            }
+                            if n_entry_px.strip():
+                                updates['entry_price'] = float(n_entry_px)
+                                
+                            if n_exit_px.strip():
+                                updates['exit_price'] = float(n_exit_px)
+                                updates['status'] = 'CLOSED'
+                            else:
+                                updates['exit_price'] = None
+                                updates['status'] = 'OPEN'
+                                
+                            update_trade_leg(lid, updates)
                             st.success("Leg updated!")
                             st.rerun()
                         except ValueError:
-                            st.error("Invalid strike.")
+                            st.error("Invalid input numbers.")
                 with b_cols[1]:
-                    if is_closed:
-                        if st.button("📦", key=f"arch_{lid}", use_container_width=True, help="Transfer leg to isolated History trade"):
-                            from src.database.queries import insert_trade
-                            import datetime
-                            
-                            exit_px = l_dict.get('exit_price', 0) or 0
-                            entry_px = l_dict.get('entry_price', 0) or 0
+                    if st.button("📦", key=f"arch_{lid}", use_container_width=True, help="Close & Archive Leg to History"):
+                        from src.database.queries import insert_trade
+                        import datetime
+                        
+                        try:
+                            # Use n_exit_px from the UI if not already closed
+                            try:
+                                exit_px = float(n_exit_px) if n_exit_px.strip() else 0.0
+                            except ValueError:
+                                exit_px = 0.0
+                                
+                            try:
+                                entry_px = float(n_entry_px) if n_entry_px.strip() else (l_dict.get('entry_price', 0) or 0)
+                            except ValueError:
+                                entry_px = l_dict.get('entry_price', 0) or 0
+                                
                             qty_closed = l_dict.get('qty_closed', 1) or 1
                             is_short = l_dict.get('side') == 'SHORT'
                             
@@ -252,14 +294,15 @@ if legs:
                                 'entry_credit_debit': (entry_px * qty_closed) if is_short else -(entry_px * qty_closed)
                             }
                             
-                            try:
-                                n_tid = insert_trade(new_trade)
-                                update_trade_leg(lid, {'trade_id': n_tid, 'status': 'CLOSED'})
-                                st.success("Leg transferred to History log!")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error archiving: {e}")
-                    else:
+                            n_tid = insert_trade(new_trade)
+                            update_trade_leg(lid, {'trade_id': n_tid, 'status': 'CLOSED', 'exit_price': exit_px})
+                            st.success("Leg transferred to History log!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error archiving: {e}")
+                
+                with b_cols[2]:
+                    if is_closed:
                         if st.button("🔄", key=f"reac_{lid}", use_container_width=True, help="Re-activate leg to Active Portfolio"):
                             from src.database.queries import update_trade
                             try:
@@ -269,8 +312,8 @@ if legs:
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Error reactivating: {e}")
-                    
-                with b_cols[2]:
+                                
+                with b_cols[3]:
                     if st.button("🗑️", key=f"del_{lid}", use_container_width=True, help="Permanently delete leg"):
                         from src.database.queries import delete_trade_leg
                         delete_trade_leg(lid)

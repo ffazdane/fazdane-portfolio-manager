@@ -10,7 +10,11 @@ from datetime import datetime
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.database.schema import init_database
+from src.utils.auth import check_password
+if not check_password():
+    st.stop()
+
+from app import init_app
 from src.database.queries import get_active_trades, get_trade_legs, get_setting
 from src.risk.alert_engine import get_all_active_alerts, acknowledge_alert
 from src.risk.risk_metrics import calculate_trade_risk_metrics, calculate_portfolio_risk
@@ -23,7 +27,7 @@ from src.utils.option_symbols import calculate_dte
 st.set_page_config(page_title="Risk Monitor | Portfolio Manager", page_icon="⚠️", layout="wide")
 from src.utils.branding import setup_branding
 setup_branding()
-init_database()
+init_app()
 
 st.markdown("""
 <style> #MainMenu {visibility: hidden;} footer {visibility: hidden;} </style>

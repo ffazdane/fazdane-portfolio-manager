@@ -9,7 +9,12 @@ from datetime import datetime
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.database.schema import init_database, reset_database
+from src.utils.auth import check_password
+if not check_password():
+    st.stop()
+
+from src.database.schema import reset_database
+from app import init_app
 from src.database.queries import get_all_settings, set_setting, get_setting
 from src.market.tastytrade_client import (
     test_connection, get_tastytrade_session, get_accounts, clear_session_cache,
@@ -18,7 +23,7 @@ from src.market.tastytrade_client import (
 st.set_page_config(page_title="Settings | Portfolio Manager", page_icon="⚙️", layout="wide")
 from src.utils.branding import setup_branding
 setup_branding()
-init_database()
+init_app()
 
 st.markdown("""
 <style> #MainMenu {visibility: hidden;} footer {visibility: hidden;} </style>
@@ -238,16 +243,28 @@ with tab2:
 # ============================================================
 with tab3:
     st.markdown("### Data Management")
-    if st.button("📤 Export Database Backup"):
-        import shutil
-        from src.database.connection import DB_PATH
-        if os.path.exists(DB_PATH):
-            backup_name = f"portfolio_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
-            backup_path = os.path.join(os.path.dirname(DB_PATH), backup_name)
-            shutil.copy2(DB_PATH, backup_path)
-            st.success(f"✅ Backup: {backup_name}")
-        else:
-            st.warning("No database file found.")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("☁️ Push Database to Cloud", type="primary", use_container_width=True, help="Save a persistent copy to your configured cloud storage (e.g. GitHub)"):
+            from src.database.persistence import backup_database
+            with st.spinner("Pushing to cloud..."):
+                ok, msg = backup_database(reason="manual push from UI")
+                if ok:
+                    st.success(f"✅ {msg}")
+                else:
+                    st.error(f"Failed: {msg}")
+                    
+    with c2:
+        if st.button("📤 Export Local Backup", use_container_width=True, help="Create a local .db copy in the data/backups folder"):
+            import shutil
+            from src.database.connection import DB_PATH
+            if os.path.exists(DB_PATH):
+                backup_name = f"portfolio_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+                backup_path = os.path.join(os.path.dirname(DB_PATH), backup_name)
+                shutil.copy2(DB_PATH, backup_path)
+                st.success(f"✅ Local Backup: {backup_name}")
+            else:
+                st.warning("No database file found.")
 
     st.divider()
     st.markdown("#### ⚠️ Danger Zone")
@@ -256,7 +273,7 @@ with tab3:
         if st.button("🗑️ Reset Database"):
             reset_database()
             st.session_state.clear()
-            init_database()
+            init_app()
             st.success("Database reset.")
             st.rerun()
 

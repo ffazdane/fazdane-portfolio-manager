@@ -64,6 +64,8 @@ def init_app():
             pass
 
 
+from src.utils.auth import check_password
+
 def main():
     st.set_page_config(
         page_title="Options Portfolio Manager",
@@ -71,6 +73,9 @@ def main():
         layout="wide",
         initial_sidebar_state="expanded",
     )
+
+    if not check_password():
+        st.stop()
 
     init_app()
 

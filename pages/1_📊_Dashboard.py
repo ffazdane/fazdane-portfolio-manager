@@ -11,7 +11,11 @@ from datetime import datetime
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.database.schema import init_database
+from src.utils.auth import check_password
+if not check_password():
+    st.stop()
+
+from app import init_app
 from src.database.queries import (
     get_portfolio_summary, get_active_trades, get_pnl_by_strategy,
     get_pnl_by_ticker, get_trades_expiring_soon, get_trade_legs
@@ -26,7 +30,7 @@ from src.utils.option_symbols import calculate_dte
 st.set_page_config(page_title="Dashboard | Portfolio Manager", page_icon="📊", layout="wide")
 from src.utils.branding import setup_branding
 setup_branding()
-init_database()
+init_app()
 
 # Check and transition expired trades to history log on load
 from src.engine.lifecycle_manager import check_and_update_expired_trades

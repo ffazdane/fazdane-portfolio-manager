@@ -9,7 +9,11 @@ from datetime import datetime
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.database.schema import init_database
+from src.utils.auth import check_password
+if not check_password():
+    st.stop()
+
+from app import init_app
 from src.database.queries import get_active_trades, get_trade_legs
 from src.utils.formatting import (
     format_currency, format_pnl_html, format_date, format_dte,
@@ -21,7 +25,7 @@ from src.journal.journal_manager import add_journal_entry
 st.set_page_config(page_title="Active Portfolio | Portfolio Manager", page_icon="📈", layout="wide")
 from src.utils.branding import setup_branding
 setup_branding()
-init_database()
+init_app()
 
 # Check and transition expired trades to history log on load
 from src.engine.lifecycle_manager import check_and_update_expired_trades
@@ -150,10 +154,20 @@ elif sort_by == "Underlying (A-Z)":
 st.caption(f"Showing {len(trade_rows)} active trades")
 
 if trade_rows:
+    # Display headers
+    hcols = st.columns([0.5, 1.0, 0.8, 1.6, 1.2, 1.0, 1.0, 0.7, 1.0, 1.0, 1.0, 0.8, 0.5, 0.5])
+    headers = ["", "Symbol", "Broker", "Price / ATR", "Strategy", "Opened", "Expiry", "DTE", "Entry Px", "Unrealized", "Strikes", "Notes", "", ""]
+    for col, h in zip(hcols, headers):
+        with col:
+            if h:
+                st.caption(f"**{h}**")
+                
+    st.markdown('<hr style="margin: 2px 0 10px 0; border-color: rgba(255,255,255,0.1);">', unsafe_allow_html=True)
+
     # Display table
     for row in trade_rows:
         with st.container():
-            cols = st.columns([0.5, 1.0, 0.8, 1.6, 1.2, 1.0, 1.0, 0.7, 1.0, 1.0, 1.0, 0.8, 0.5])
+            cols = st.columns([0.5, 1.0, 0.8, 1.6, 1.2, 1.0, 1.0, 0.7, 1.0, 1.0, 1.0, 0.8, 0.5, 0.5])
             
             with cols[0]:
                 st.write(row['Status'])
@@ -198,6 +212,12 @@ if trade_rows:
                 if st.button("🔍", key=f"detail_{row['trade_id']}", help="View trade details"):
                     st.session_state.selected_trade_id = row['trade_id']
                     st.switch_page("pages/3_🔍_Trade_Detail.py")
+            with cols[13]:
+                if st.button("🗑️", key=f"del_{row['trade_id']}", help="Delete entire trade"):
+                    from src.database.queries import delete_trade
+                    delete_trade(row['trade_id'])
+                    st.success("Trade deleted!")
+                    st.rerun()
 
         st.markdown('<hr style="margin: 2px 0; border-color: rgba(255,255,255,0.05);">', 
                    unsafe_allow_html=True)

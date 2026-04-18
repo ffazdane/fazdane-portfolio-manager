@@ -8,14 +8,18 @@ from datetime import datetime
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.database.schema import init_database
+from src.utils.auth import check_password
+if not check_password():
+    st.stop()
+
+from app import init_app
 from src.database.queries import insert_trade, insert_trade_leg
 from src.engine.strategy_grouper import STRATEGY_TYPES
 
 st.set_page_config(page_title="Manual Entry", page_icon="✍️", layout="wide")
 from src.utils.branding import setup_branding
 setup_branding()
-init_database()
+init_app()
 
 st.markdown("## ✍️ Manually Add Trade")
 st.caption("Use this form to manually enter a new trade and its associated legs directly into the Portfolio Manager.")
@@ -155,4 +159,8 @@ if submit:
         insert_trade_leg(leg_data)
         
     st.success(f"**Success!** Hand-crafted trade for **{underlying}** has been added. View it in the Active Portfolio or Dashboard.")
+    
+    from src.database.persistence import backup_database
+    backup_database(reason=f"manual entry {underlying}")
+    
     st.balloons()

@@ -8,7 +8,11 @@ import pandas as pd
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.database.schema import init_database
+from src.utils.auth import check_password
+if not check_password():
+    st.stop()
+
+from app import init_app
 from src.database.queries import get_active_trades, get_trade_legs, get_latest_quotes_batch
 from src.utils.option_symbols import calculate_dte
 from src.utils.formatting import format_currency
@@ -16,7 +20,7 @@ from src.utils.formatting import format_currency
 st.set_page_config(page_title="Portfolio Monitor", page_icon="🦅", layout="wide")
 from src.utils.branding import setup_branding
 setup_branding()
-init_database()
+init_app()
 
 @st.cache_data(ttl=86400)
 def fetch_earnings_dates(symbols):
