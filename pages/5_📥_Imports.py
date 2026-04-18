@@ -57,8 +57,7 @@ with tab1:
         # Check for duplicates
         is_dup, file_hash = is_duplicate_file(file_bytes)
         if is_dup:
-            st.warning("⚠️ This file has already been imported (same file hash detected). Upload skipped.")
-            st.stop()
+            st.warning("⚠️ This file has already been imported (same file hash detected). You can proceed to review and re-import if necessary.")
 
         # Read into DataFrame
         try:
