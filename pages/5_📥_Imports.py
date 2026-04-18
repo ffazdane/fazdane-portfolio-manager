@@ -139,8 +139,20 @@ with tab1:
                         # Insert normalized transactions
                         new_count = insert_normalized_transactions_bulk(normalized)
 
-                        # Rebuild positions and trades
+                        # Rebuild positions
                         positions = reconstruct_positions()
+                        
+                        # Identify underlyings in the import
+                        imported_underlyings = set(txn['underlying'] for txn in normalized if txn.get('underlying'))
+                        
+                        if imported_underlyings:
+                            # 1. Clear existing active trades for these underlyings to prevent duplicates
+                            from src.database.queries import delete_active_trades_by_underlying
+                            delete_active_trades_by_underlying(list(imported_underlyings))
+                            
+                            # 2. Filter reconstructed positions to ONLY the ones we just imported
+                            positions = [p for p in positions if p.get('underlying') in imported_underlyings]
+
                         trades = group_positions_into_trades(positions)
                         trade_ids = save_trades_to_db(trades)
 
@@ -287,6 +299,11 @@ with tab2:
                         if not mapped_positions:
                             st.error("No valid positions to import.")
                         else:
+                            imported_underlyings = set(p['underlying'] for p in mapped_positions)
+                            if imported_underlyings:
+                                from src.database.queries import delete_active_trades_by_underlying
+                                delete_active_trades_by_underlying(list(imported_underlyings))
+                                
                             trades = group_positions_into_trades(mapped_positions)
                             trade_ids = save_trades_to_db(trades)
                             st.success(f"✅ Imported {len(trade_ids)} strategy groups into your Active Portfolio!")

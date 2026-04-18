@@ -431,6 +431,32 @@ def get_journal_entry_count(trade_id):
 # MARKET QUOTES
 # ============================================================
 
+def delete_active_trades_by_underlying(underlyings):
+    """Delete all active trades and their legs for specific underlyings to prevent duplicates on re-import."""
+    if not underlyings:
+        return
+    with get_db() as conn:
+        placeholders = ",".join(["?"] * len(underlyings))
+        
+        # Get active trade IDs for these underlyings
+        cursor = conn.execute(
+            f"SELECT trade_id FROM trades WHERE status IN ('ACTIVE', 'PARTIALLY_CLOSED', 'ADJUSTED', 'ROLLED_OPEN') AND underlying IN ({placeholders})",
+            list(underlyings)
+        )
+        trade_ids = [row['trade_id'] for row in cursor.fetchall()]
+        
+        if not trade_ids:
+            return
+            
+        trade_placeholders = ",".join(["?"] * len(trade_ids))
+        
+        # Delete legs first
+        conn.execute(f"DELETE FROM trade_legs WHERE trade_id IN ({trade_placeholders})", trade_ids)
+        
+        # Delete trades
+        conn.execute(f"DELETE FROM trades WHERE trade_id IN ({trade_placeholders})", trade_ids)
+
+
 def upsert_market_quote(quote_data):
     """Insert or update a market quote."""
     with get_db() as conn:
