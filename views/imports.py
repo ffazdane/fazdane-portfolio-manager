@@ -205,11 +205,15 @@ with tab2:
 
             c1, c2 = st.columns([3, 1])
             with c1:
-                if st.button("🔄 Fetch Current Positions (Append)", key="fetch_positions", type="primary"):
-                    with st.spinner(f"Fetching positions for {selected_acct}..."):
-                        positions, error = get_positions(session, selected_acct)
-                        if error:
-                            st.error(error)
+                fetch_disabled = selected_acct is None
+                if st.button("🔄 Fetch Current Positions (Append)", key="fetch_positions", type="primary", disabled=fetch_disabled):
+                    if not selected_acct:
+                        st.error("No account selected. Please go to Settings and reconnect your account.")
+                    else:
+                        with st.spinner(f"Fetching positions for {selected_acct}..."):
+                            positions, error = get_positions(session, selected_acct)
+                            if error:
+                                st.error(error)
                         elif positions:
                             existing = {(p['account_number'], p['symbol']) for p in st.session_state.api_positions}
                             added = 0
@@ -314,11 +318,14 @@ with tab2:
             with c2:
                 end_date = st.date_input("End Date", value=None, key="api_end")
 
-            if st.button("🔄 Fetch Transactions", key="fetch_api_txns", type="primary"):
-                with st.spinner("Fetching transactions from tastytrade..."):
-                    txns, error = get_transactions(session, selected_acct, start_date, end_date)
-                    if error:
-                        st.error(error)
+            if st.button("🔄 Fetch Transactions", key="fetch_api_txns", type="primary", disabled=(selected_acct is None)):
+                if not selected_acct:
+                    st.error("No account selected. Please go to Settings and reconnect your account.")
+                else:
+                    with st.spinner("Fetching transactions from tastytrade..."):
+                        txns, error = get_transactions(session, selected_acct, start_date, end_date)
+                        if error:
+                            st.error(error)
                     elif txns:
                         st.success(f"✅ Fetched {len(txns)} transactions")
                         df = pd.DataFrame(txns)
