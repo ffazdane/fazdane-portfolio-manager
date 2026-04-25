@@ -82,11 +82,57 @@ def detect_account_from_filename(filename: str, known_accounts: list) -> Optiona
     """
     Extract and validate account number from a filename.
     Returns account_number string or None.
+    Checks for any suffix-only match for partial account numbers (e.g. '177' matches 'XXX177').
     """
     for acct in known_accounts:
         if acct in filename:
             return acct
     return None
+
+
+def detect_broker_and_account_from_filename(filename: str) -> dict:
+    """
+    Global rule: detect BOTH broker name and account number from a filename
+    using the account_master table in the database.
+
+    Returns a dict:
+        {
+            'broker':  'TastyTrade' | 'Schwab' | None,
+            'account': 'ACCT_NUMBER' | None,
+            'method':  'filename_pattern' | 'account_master' | None,
+        }
+
+    Priority:
+      1. Known filename patterns (TastyTrade history, gain/loss, Schwab Individual_)
+      2. Substring match against every account_number in account_master
+    """
+    result = {'broker': None, 'account': None, 'method': None}
+
+    # ── Pattern-based detection (fastest, no DB needed) ──────────────────────
+    if TASTYTRADE_HISTORY_PATTERN.search(filename) or TASTYTRADE_GAINLOSS_PATTERN.search(filename):
+        result['broker'] = 'TastyTrade'
+        result['method'] = 'filename_pattern'
+    elif SCHWAB_PATTERN.search(filename):
+        result['broker'] = 'Schwab'
+        result['method'] = 'filename_pattern'
+
+    # ── Account master lookup ─────────────────────────────────────────────────
+    try:
+        from src.database.queries import get_account_master
+        accounts = [dict(a) for a in get_account_master()]
+        for acct in accounts:
+            acct_num = acct.get('account_number', '')
+            if acct_num and acct_num in filename:
+                result['account'] = acct_num
+                # Account master also tells us the broker
+                if not result['broker']:
+                    result['broker'] = acct.get('broker_name')
+                    result['method'] = 'account_master'
+                break
+    except Exception:
+        pass  # Silently skip if DB not available
+
+    return result
 
 
 def detect_file_type(filename: str) -> str:

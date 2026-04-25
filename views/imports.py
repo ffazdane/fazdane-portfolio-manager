@@ -66,34 +66,64 @@ with tab1:
 
         st.success(f"✅ File loaded: {uploaded_file.name} ({len(df)} rows)")
 
-        # Broker detection
-        st.markdown("### Broker Detection")
-        parsers = [TastytradeParser(), SchwabParser(), ExcelLegParser()]
-        detected_parser = None
+        # ── Broker & Account Detection (filename-first, global rule) ──────────
+        st.markdown("### Broker & Account Detection")
+        from src.ingestion.ytd_validator import detect_broker_and_account_from_filename
+        fn_detect = detect_broker_and_account_from_filename(uploaded_file.name)
 
+        filename_broker  = fn_detect['broker']    # e.g. 'TastyTrade' or 'Schwab'
+        filename_account = fn_detect['account']   # e.g. '5WT12803' or 'XXX177'
+        detect_method    = fn_detect['method']
+
+        # Map broker name to parser key
+        BROKER_PARSER_MAP = {
+            'tastytrade': TastytradeParser(),
+            'schwab':     SchwabParser(),
+            'excel_import': ExcelLegParser(),
+        }
+        broker_key_map = {
+            'TastyTrade': 'tastytrade',
+            'Schwab':     'schwab',
+        }
+
+        # Show filename detection result
+        if filename_broker:
+            method_label = "filename pattern" if detect_method == 'filename_pattern' else "account master"
+            st.success(f"🔍 **Filename detected:** Broker = `{filename_broker}` | Account = `{filename_account or 'unknown'}` *(via {method_label})*")
+        if filename_account and not filename_broker:
+            st.warning(f"⚠️ Account `{filename_account}` found in filename but no matching broker rule — select manually below.")
+
+        # Fall back to content-based parser detection
+        parsers = [TastytradeParser(), SchwabParser(), ExcelLegParser()]
+        content_parser = None
         for parser in parsers:
             if parser.detect(df):
-                detected_parser = parser
+                content_parser = parser
                 break
 
         broker_options = ['Auto-detect', 'tastytrade', 'schwab', 'excel_import']
         col1, col2 = st.columns([1, 2])
         with col1:
-            if detected_parser:
-                st.success(f"🔍 Auto-detected: **{detected_parser.get_broker_name()}**")
-            broker_override = st.selectbox("Broker", broker_options)
+            if content_parser and not filename_broker:
+                st.info(f"🔬 Content-detected: **{content_parser.get_broker_name()}**")
+            broker_override = st.selectbox("Broker (override if wrong)", broker_options)
 
+        # Final parser selection: filename > content > manual
         if broker_override != 'Auto-detect':
-            parser_map = {
-                'tastytrade': TastytradeParser(),
-                'schwab': SchwabParser(),
-                'excel_import': ExcelLegParser(),
-            }
-            detected_parser = parser_map[broker_override]
+            detected_parser = BROKER_PARSER_MAP.get(broker_override)
+        elif filename_broker:
+            broker_key = broker_key_map.get(filename_broker, filename_broker.lower())
+            detected_parser = BROKER_PARSER_MAP.get(broker_key, content_parser)
+        else:
+            detected_parser = content_parser
 
         if not detected_parser:
             st.error("Could not detect broker format. Please select manually.")
             st.stop()
+
+        st.info(f"✅ Using parser: **{detected_parser.get_broker_name()}**"
+                + (f" | Account: `{filename_account}`" if filename_account else ""))
+
 
         # Parse
         st.markdown("### Preview Parsed Data")
