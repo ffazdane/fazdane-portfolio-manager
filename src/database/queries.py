@@ -457,6 +457,33 @@ def delete_active_trades_by_underlying(underlyings):
         conn.execute(f"DELETE FROM trades WHERE trade_id IN ({trade_placeholders})", trade_ids)
 
 
+def delete_active_trades_by_account_and_underlying(account, underlyings):
+    """Delete all active trades and their legs for a specific account and underlyings to prevent duplicates on API re-import."""
+    if not underlyings or not account:
+        return
+    with get_db() as conn:
+        placeholders = ",".join(["?"] * len(underlyings))
+        params = [account] + list(underlyings)
+        
+        # Get active trade IDs for these underlyings and this specific account
+        cursor = conn.execute(
+            f"SELECT trade_id FROM trades WHERE status IN ('ACTIVE', 'PARTIALLY_CLOSED', 'ADJUSTED', 'ROLLED_OPEN') AND account = ? AND underlying IN ({placeholders})",
+            params
+        )
+        trade_ids = [row['trade_id'] for row in cursor.fetchall()]
+        
+        if not trade_ids:
+            return
+            
+        trade_placeholders = ",".join(["?"] * len(trade_ids))
+        
+        # Delete legs first
+        conn.execute(f"DELETE FROM trade_legs WHERE trade_id IN ({trade_placeholders})", trade_ids)
+        
+        # Delete trades
+        conn.execute(f"DELETE FROM trades WHERE trade_id IN ({trade_placeholders})", trade_ids)
+
+
 def upsert_market_quote(quote_data):
     """Insert or update a market quote."""
     with get_db() as conn:

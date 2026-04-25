@@ -300,8 +300,8 @@ with tab2:
                         else:
                             imported_underlyings = set(p['underlying'] for p in mapped_positions)
                             if imported_underlyings:
-                                from src.database.queries import delete_active_trades_by_underlying
-                                delete_active_trades_by_underlying(list(imported_underlyings))
+                                from src.database.queries import delete_active_trades_by_account_and_underlying
+                                delete_active_trades_by_account_and_underlying(selected_acct, list(imported_underlyings))
                                 
                             trades = group_positions_into_trades(mapped_positions)
                             trade_ids = save_trades_to_db(trades)
