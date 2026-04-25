@@ -234,8 +234,17 @@ for (underlying, expiry, tid), data in grouped_legs.items():
     call_short_strike = min(call_shorts) if call_shorts else None
     call_long_strike = max(call_longs) if call_longs else None
     
-    if not put_short_strike and not call_short_strike and not put_long_strike and not call_long_strike:
+    has_short = put_short_strike or call_short_strike
+    has_long = put_long_strike or call_long_strike
+    
+    if not has_short and not has_long:
         continue
+        
+    # If it's a purely long position, only monitor it if it's a 1-leg strategy
+    if not has_short and has_long:
+        is_single = any("single" in s.lower() for s in data['strategies'])
+        if not is_single:
+            continue
         
     dte = calculate_dte(expiry)
     quote = quotes.get(underlying, {})
