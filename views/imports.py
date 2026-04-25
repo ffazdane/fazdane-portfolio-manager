@@ -212,8 +212,8 @@ with tab2:
                     else:
                         with st.spinner(f"Fetching positions for {selected_acct}..."):
                             positions, error = get_positions(session, selected_acct)
-                            if error:
-                                st.error(error)
+                        if error:
+                            st.error(error)
                         elif positions:
                             existing = {(p['account_number'], p['symbol']) for p in st.session_state.api_positions}
                             added = 0
@@ -324,8 +324,8 @@ with tab2:
                 else:
                     with st.spinner("Fetching transactions from tastytrade..."):
                         txns, error = get_transactions(session, selected_acct, start_date, end_date)
-                        if error:
-                            st.error(error)
+                    if error:
+                        st.error(error)
                     elif txns:
                         st.success(f"✅ Fetched {len(txns)} transactions")
                         df = pd.DataFrame(txns)
