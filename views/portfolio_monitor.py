@@ -234,7 +234,7 @@ for (underlying, expiry, tid), data in grouped_legs.items():
     call_short_strike = min(call_shorts) if call_shorts else None
     call_long_strike = max(call_longs) if call_longs else None
     
-    if not put_short_strike and not call_short_strike:
+    if not put_short_strike and not call_short_strike and not put_long_strike and not call_long_strike:
         continue
         
     dte = calculate_dte(expiry)
@@ -248,7 +248,10 @@ for (underlying, expiry, tid), data in grouped_legs.items():
     max_p = data['max_profit']
     pct_max_profit = (total_pnl / max_p * 100) if (max_p and max_p > 0) else None
     
-    status_label = "☑️ Inside"
+    if not put_short_strike and not call_short_strike:
+        status_label = "☑️ Active (Long)"
+    else:
+        status_label = "☑️ Inside"
     if current_price:
         if call_short_strike and current_price >= call_short_strike:
             status_label = "⚠️ Breached (Call)"
