@@ -117,17 +117,41 @@ def detect_broker_and_account_from_filename(filename: str) -> dict:
         result['method'] = 'filename_pattern'
 
     # ── Account master lookup ─────────────────────────────────────────────────
+    # Supports:
+    #   - Exact match:   acct_num "5WT12803" found literally in filename
+    #   - Suffix match:  acct_num "177" matches "XXX177" in the Schwab filename
+    #   - Extracts the full account token from the filename for display
     try:
         from src.database.queries import get_account_master
         accounts = [dict(a) for a in get_account_master()]
+
+        # Also extract the account token from the Schwab pattern for suffix matching
+        schwab_m = SCHWAB_PATTERN.search(filename)
+        filename_acct_token = schwab_m.group('account') if schwab_m else None
+
         for acct in accounts:
             acct_num = acct.get('account_number', '')
-            if acct_num and acct_num in filename:
-                result['account'] = acct_num
+            if not acct_num:
+                continue
+
+            # Exact substring match (e.g. full account "5WT12803" in filename)
+            exact_match = acct_num in filename
+
+            # Suffix match: "177" matches extracted token "XXX177"
+            suffix_match = (
+                filename_acct_token is not None
+                and filename_acct_token.upper().endswith(acct_num.upper())
+            )
+
+            if exact_match or suffix_match:
+                # Use the full token from the filename if we have it (e.g. XXX177)
+                result['account'] = filename_acct_token if suffix_match else acct_num
                 # Account master also tells us the broker
                 if not result['broker']:
                     result['broker'] = acct.get('broker_name')
                     result['method'] = 'account_master'
+                else:
+                    result['method'] = result['method'] or 'account_master'
                 break
     except Exception:
         pass  # Silently skip if DB not available
