@@ -14,16 +14,11 @@ if not check_password():
     st.stop()
 
 from src.database.schema import reset_database
-from app import init_app
 from src.database.queries import get_all_settings, set_setting, get_setting
 from src.market.tastytrade_client import (
     test_connection, get_tastytrade_session, get_accounts, clear_session_cache,
 )
 
-st.set_page_config(page_title="Settings | Portfolio Manager", page_icon="⚙️", layout="wide")
-from src.utils.branding import setup_branding
-setup_branding()
-init_app()
 
 st.markdown("""
 <style> #MainMenu {visibility: hidden;} footer {visibility: hidden;} </style>
@@ -273,7 +268,6 @@ with tab3:
         if st.button("🗑️ Reset Database"):
             reset_database()
             st.session_state.clear()
-            init_app()
             st.success("Database reset.")
             st.rerun()
 

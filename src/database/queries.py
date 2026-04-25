@@ -685,3 +685,128 @@ def get_trades_expiring_soon(days=7, account=None):
             params.append(account)
         query += " ORDER BY tl.expiry ASC"
         return conn.execute(query, params).fetchall()
+
+# ============================================================
+# YTD UPLOADS & BROKER TRANSACTIONS
+# ============================================================
+
+def get_account_master():
+    """Get all accounts mapped in account_master."""
+    with get_db_readonly() as conn:
+        return conn.execute("SELECT * FROM account_master").fetchall()
+
+
+def get_year_close_status():
+    """Get archive status for all years."""
+    with get_db_readonly() as conn:
+        return conn.execute("SELECT * FROM year_close_status ORDER BY year DESC").fetchall()
+
+
+def archive_year(year, closed_by="admin"):
+    """Lock and archive a specific year."""
+    with get_db() as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO year_close_status 
+               (year, status, closed_datetime, closed_by, is_locked)
+               VALUES (?, 'Closed', datetime('now'), ?, 1)""",
+            (year, closed_by)
+        )
+
+
+def is_year_locked(year):
+    """Check if a year is locked."""
+    with get_db_readonly() as conn:
+        row = conn.execute("SELECT is_locked FROM year_close_status WHERE year = ?", (year,)).fetchone()
+        return bool(row and row["is_locked"])
+
+
+def insert_transaction_upload_batch(broker_name, platform_name, account_number, upload_year, file_name, file_path, record_count):
+    """Insert a new upload batch record. Returns batch_id."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            """INSERT INTO transaction_upload_batches
+               (broker_name, platform_name, account_number, upload_year, file_name, file_path, record_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (broker_name, platform_name, account_number, upload_year, file_name, file_path, record_count)
+        )
+        return cursor.lastrowid
+
+
+def delete_broker_transactions(account_number, transaction_year):
+    """Delete all broker transactions for a specific account and year."""
+    with get_db() as conn:
+        conn.execute(
+            "DELETE FROM broker_transactions WHERE account_number = ? AND transaction_year = ?",
+            (account_number, transaction_year)
+        )
+
+
+def insert_broker_transactions_bulk(batch_id, account_number, transaction_year, rows):
+    """Insert multiple broker transaction rows."""
+    import math
+
+    def _safe_num(v):
+        """Coerce any value to a clean float — never NaN, None, or inf."""
+        if v is None:
+            return 0.0
+        try:
+            f = float(v)
+            return 0.0 if (math.isnan(f) or math.isinf(f)) else f
+        except (TypeError, ValueError):
+            return 0.0
+
+    with get_db() as conn:
+        for row in rows:
+            # Determine net amount: gain/loss worksheet has explicit gain_loss field
+            net_amount = (
+                row.get('gain_loss', None)       # Gain/loss worksheet
+                if row.get('gain_loss') is not None
+                else row.get('amount', 0) - row.get('fees', 0)  # Transaction history
+            )
+            realized_pl = row.get('gain_loss', row.get('realized_pl', 0)) or 0
+
+            conn.execute(
+                """INSERT INTO broker_transactions
+                   (batch_id, broker_name, platform_name, account_number, transaction_year, transaction_date,
+                    ticker, underlying, description, transaction_type, quantity, price,
+                    gross_amount, fees, net_amount, realized_pl, open_close_flag, source_file_name)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    batch_id,
+                    row.get('broker', ''),
+                    row.get('broker', ''),
+                    account_number,
+                    transaction_year,
+                    row.get('date', ''),
+                    row.get('symbol', ''),
+                    row.get('underlying', ''),
+                    row.get('description', ''),
+                    row.get('normalized_type', row.get('type', '')),
+                    _safe_num(row.get('quantity', 0)),
+                    _safe_num(row.get('price', 0)),
+                    _safe_num(row.get('amount', row.get('cost_basis', 0))),
+                    _safe_num(row.get('fees', 0)),
+                    _safe_num(net_amount),
+                    _safe_num(realized_pl),
+                    row.get('open_close', 'CLOSE'),
+                    row.get('source_file_name', '')
+                )
+            )
+
+
+def get_broker_transactions(year=None, broker=None, account=None):
+    """Get consolidated broker transactions."""
+    with get_db_readonly() as conn:
+        query = "SELECT * FROM broker_transactions WHERE 1=1"
+        params = []
+        if year:
+            query += " AND transaction_year = ?"
+            params.append(year)
+        if broker:
+            query += " AND broker_name = ?"
+            params.append(broker)
+        if account:
+            query += " AND account_number = ?"
+            params.append(account)
+        query += " ORDER BY transaction_date DESC"
+        return conn.execute(query, params).fetchall()

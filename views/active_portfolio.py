@@ -13,7 +13,6 @@ from src.utils.auth import check_password
 if not check_password():
     st.stop()
 
-from app import init_app
 from src.database.queries import get_active_trades, get_trade_legs
 from src.utils.formatting import (
     format_currency, format_pnl_html, format_date, format_dte,
@@ -22,10 +21,6 @@ from src.utils.formatting import (
 from src.utils.option_symbols import calculate_dte
 from src.journal.journal_manager import add_journal_entry
 
-st.set_page_config(page_title="Active Portfolio | Portfolio Manager", page_icon="📈", layout="wide")
-from src.utils.branding import setup_branding
-setup_branding()
-init_app()
 
 # Check and transition expired trades to history log on load
 from src.engine.lifecycle_manager import check_and_update_expired_trades
@@ -43,7 +38,7 @@ st.markdown("## 📈 Active Portfolio <span style='font-size:14px; color:#888; f
 account = st.session_state.get('selected_account')
 
 # Filters
-col1, col2, col3 = st.columns([2, 2, 2])
+col1, col2, col3, col4 = st.columns([2, 2, 2, 1], vertical_alignment="bottom")
 with col1:
     strategy_filter = st.selectbox(
         "Strategy",
@@ -60,6 +55,16 @@ with col2:
     ])
 with col3:
     search = st.text_input("Search Underlying", placeholder="e.g. SPY, AAPL")
+with col4:
+    if st.button("🔄 Refresh", use_container_width=True, help="Fetch latest market data"):
+        with st.spinner("Fetching latest data..."):
+            st.session_state.last_refresh = datetime.now()
+            st.session_state.refresh_msg = "Data successfully refreshed!"
+        st.rerun()
+
+if "refresh_msg" in st.session_state:
+    st.success(st.session_state.refresh_msg)
+    del st.session_state.refresh_msg
 
 # Get trades
 trades = get_active_trades(account)
@@ -211,7 +216,7 @@ if trade_rows:
             with cols[12]:
                 if st.button("🔍", key=f"detail_{row['trade_id']}", help="View trade details"):
                     st.session_state.selected_trade_id = row['trade_id']
-                    st.switch_page("pages/3_🔍_Trade_Detail.py")
+                    st.switch_page("views/trade_detail.py")
             with cols[13]:
                 if st.button("🗑️", key=f"del_{row['trade_id']}", help="Delete entire trade"):
                     from src.database.queries import delete_trade

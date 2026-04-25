@@ -20,22 +20,14 @@ def init_app():
     """Initialize the application on first load."""
     if 'db_initialized' not in st.session_state:
 
-        # ── Step 1: Restore database from persistent store if needed ──────────
-        # On Streamlit Cloud, every new container starts with no local DB file.
-        # We attempt a restore BEFORE touching the schema so we never overwrite
-        # live data with a fresh empty database.
         if not db_exists_and_has_data():
             success, message = restore_database()
             st.session_state.db_restore_status = ("success" if success else "info", message)
         else:
             st.session_state.db_restore_status = None
 
-        # ── Step 2: Initialise schema (CREATE IF NOT EXISTS — always safe) ────
         init_database()
-
-        # ── Step 3: Apply any pending schema migrations (ALTER TABLE only) ────
         migrate_database()
-
         st.session_state.db_initialized = True
 
     if 'selected_account' not in st.session_state:
@@ -78,6 +70,36 @@ def main():
         st.stop()
 
     init_app()
+
+    # Define Navigation
+    pages = {
+        "Overview": [
+            st.Page("views/dashboard.py", title="Dashboard", icon="📊", default=True),
+            st.Page("views/active_portfolio.py", title="Active Portfolio", icon="📈"),
+            st.Page("views/portfolio_monitor.py", title="Portfolio Monitor", icon="🦅"),
+            st.Page("views/risk_monitor.py", title="Risk Monitor", icon="⚠️"),
+        ],
+        "Trades & Activity": [
+            st.Page("views/trade_detail.py", title="Trade Detail", icon="🔍"),
+            st.Page("views/history_log.py", title="History Log", icon="📜"),
+            st.Page("views/manual_entry.py", title="Manual Entry", icon="✍️"),
+        ],
+        "Data Management": [
+            st.Page("views/imports.py", title="Imports", icon="📥"),
+            st.Page("views/broker_data_upload.py", title="Broker Data Upload", icon="📁"),
+        ],
+        "Analytics": [
+            st.Page("views/ytd_analytics.py", title="YTD Analytics", icon="📈"),
+        ],
+        "Year-End Controls": [
+            st.Page("views/year_close.py", title="Year Close", icon="🔒"),
+        ],
+        "System": [
+            st.Page("views/settings.py", title="Settings", icon="⚙️"),
+        ]
+    }
+
+    pg = st.navigation(pages)
 
     # Custom CSS for premium look
     st.markdown("""
@@ -247,63 +269,8 @@ def main():
         if st.session_state.last_refresh:
             st.caption(f"Last refresh: {st.session_state.last_refresh.strftime('%H:%M:%S')}")
 
-    # Main page content
-    st.markdown("""
-    <div style="text-align: center; padding: 40px 0;">
-        <h1 style="font-size: 42px; font-weight: 800;
-                   background: linear-gradient(135deg, #00D4AA 0%, #4169E1 50%, #9370DB 100%);
-                   -webkit-background-clip: text;
-                   -webkit-text-fill-color: transparent;">
-            Options Portfolio Manager
-        </h1>
-        <p style="color: #888; font-size: 16px; margin-top: 8px;">
-            Monitor • Manage • Journal • Analyze
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Quick navigation cards
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-        st.markdown("""
-        <div class="kpi-card">
-            <div style="font-size: 36px;">📊</div>
-            <div style="font-weight: 600; margin-top: 8px;">Dashboard</div>
-            <div class="kpi-label">Portfolio overview & KPIs</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col2:
-        st.markdown("""
-        <div class="kpi-card">
-            <div style="font-size: 36px;">📈</div>
-            <div style="font-weight: 600; margin-top: 8px;">Active Portfolio</div>
-            <div class="kpi-label">Open trades & positions</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col3:
-        st.markdown("""
-        <div class="kpi-card">
-            <div style="font-size: 36px;">📥</div>
-            <div style="font-weight: 600; margin-top: 8px;">Import</div>
-            <div class="kpi-label">Upload broker files</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col4:
-        st.markdown("""
-        <div class="kpi-card">
-            <div style="font-size: 36px;">⚠️</div>
-            <div style="font-weight: 600; margin-top: 8px;">Risk Monitor</div>
-            <div class="kpi-label">Alerts & risk metrics</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.info("👈 Use the sidebar to navigate between pages. Start by going to **Settings** to configure your tastytrade API connection, then **Import** data from your broker files.")
-
+    # Run the selected page
+    pg.run()
 
 if __name__ == "__main__":
     main()

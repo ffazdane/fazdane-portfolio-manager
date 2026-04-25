@@ -12,15 +12,10 @@ from src.utils.auth import check_password
 if not check_password():
     st.stop()
 
-from app import init_app
 from src.database.queries import get_active_trades, get_trade_legs, get_latest_quotes_batch
 from src.utils.option_symbols import calculate_dte
 from src.utils.formatting import format_currency
 
-st.set_page_config(page_title="Portfolio Monitor", page_icon="🦅", layout="wide")
-from src.utils.branding import setup_branding
-setup_branding()
-init_app()
 
 @st.cache_data(ttl=86400)
 def fetch_earnings_dates(symbols):
@@ -56,6 +51,20 @@ st.markdown("""
 
 st.markdown("## 🦅 FazDane Analytics | Portfolio Monitor <span style='font-size:14px; color:#888; font-weight:normal; margin-left:15px;'>(Source: 🔴 Tastytrade | 🔵 Schwab)</span>", unsafe_allow_html=True)
 st.caption("Monitoring short strike safety and deviation distances across all active strategies.")
+
+from datetime import datetime
+col1, col2 = st.columns([9, 1], vertical_alignment="bottom")
+with col2:
+    if st.button("🔄 Refresh", use_container_width=True, help="Fetch latest market data"):
+        with st.spinner("Fetching latest data..."):
+            st.session_state.last_refresh = datetime.now()
+            st.session_state.refresh_msg = "Data successfully refreshed!"
+            fetch_earnings_dates.clear()
+        st.rerun()
+
+if "refresh_msg" in st.session_state:
+    st.success(st.session_state.refresh_msg)
+    del st.session_state.refresh_msg
 
 # Fetch Data
 active_trades = get_active_trades()

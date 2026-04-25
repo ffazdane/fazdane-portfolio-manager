@@ -12,14 +12,9 @@ from src.utils.auth import check_password
 if not check_password():
     st.stop()
 
-from app import init_app
 from src.database.queries import insert_trade, insert_trade_leg
 from src.engine.strategy_grouper import STRATEGY_TYPES
 
-st.set_page_config(page_title="Manual Entry", page_icon="✍️", layout="wide")
-from src.utils.branding import setup_branding
-setup_branding()
-init_app()
 
 st.markdown("## ✍️ Manually Add Trade")
 st.caption("Use this form to manually enter a new trade and its associated legs directly into the Portfolio Manager.")

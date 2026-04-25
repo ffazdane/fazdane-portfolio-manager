@@ -14,7 +14,6 @@ from src.utils.auth import check_password
 if not check_password():
     st.stop()
 
-from app import init_app
 from src.database.queries import get_import_history, insert_normalized_transactions_bulk
 from src.ingestion.file_manager import compute_file_hash, is_duplicate_file, archive_file, register_import
 from src.ingestion.tastytrade_parser import TastytradeParser
@@ -24,10 +23,6 @@ from src.ingestion.normalizer import normalize_transactions
 from src.engine.position_engine import reconstruct_positions
 from src.engine.strategy_grouper import group_positions_into_trades, save_trades_to_db
 
-st.set_page_config(page_title="Imports | Portfolio Manager", page_icon="📥", layout="wide")
-from src.utils.branding import setup_branding
-setup_branding()
-init_app()
 
 st.markdown("""
 <style> #MainMenu {visibility: hidden;} footer {visibility: hidden;} </style>

@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # Increment this every time the schema changes (new column, new table, etc.)
 # Each version maps to one _migration_vN() function below.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 SCHEMA_SQL = """
@@ -233,6 +233,86 @@ INSERT OR IGNORE INTO settings (key, value, description) VALUES
     ('refresh_interval_sec', '300', 'Market data refresh interval in seconds'),
     ('tastytrade_environment', 'production', 'API environment: sandbox or production'),
     ('default_multiplier', '100', 'Default option contract multiplier');
+
+-- ============================================================
+-- ACCOUNT MASTER: Track broker accounts mapped to platforms
+-- ============================================================
+CREATE TABLE IF NOT EXISTS account_master (
+    account_number TEXT PRIMARY KEY,
+    broker_name TEXT NOT NULL,
+    platform_name TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_date TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT OR IGNORE INTO account_master (account_number, broker_name, platform_name) VALUES
+    ('5WT12803', 'TastyTrade', 'Tasty'),
+    ('XXX177', 'Schwab', 'Schwab');
+
+-- ============================================================
+-- YTD UPLOAD BATCHES: Track manual transaction uploads
+-- ============================================================
+CREATE TABLE IF NOT EXISTS transaction_upload_batches (
+    batch_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    broker_name TEXT NOT NULL,
+    platform_name TEXT,
+    account_number TEXT NOT NULL,
+    upload_year INTEGER NOT NULL,
+    file_name TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    file_source_type TEXT DEFAULT 'manual',
+    upload_datetime TEXT NOT NULL DEFAULT (datetime('now')),
+    uploaded_by TEXT DEFAULT 'system',
+    record_count INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'success',
+    error_message TEXT,
+    FOREIGN KEY (account_number) REFERENCES account_master(account_number)
+);
+CREATE INDEX IF NOT EXISTS idx_txn_upload_account_year ON transaction_upload_batches(account_number, upload_year);
+
+-- ============================================================
+-- BROKER TRANSACTIONS: Historical realized/YTD transactions (Separate from active portfolio)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS broker_transactions (
+    transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id INTEGER NOT NULL,
+    broker_name TEXT NOT NULL,
+    platform_name TEXT,
+    account_number TEXT NOT NULL,
+    transaction_year INTEGER NOT NULL,
+    transaction_date TEXT NOT NULL,
+    ticker TEXT,
+    underlying TEXT,
+    description TEXT,
+    transaction_type TEXT,
+    quantity REAL DEFAULT 0,
+    price REAL DEFAULT 0,
+    gross_amount REAL DEFAULT 0,
+    fees REAL DEFAULT 0,
+    net_amount REAL DEFAULT 0,
+    realized_pl REAL DEFAULT 0,
+    open_close_flag TEXT,
+    strategy TEXT,
+    source_file_name TEXT,
+    source_path TEXT,
+    created_datetime TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (batch_id) REFERENCES transaction_upload_batches(batch_id),
+    FOREIGN KEY (account_number) REFERENCES account_master(account_number)
+);
+CREATE INDEX IF NOT EXISTS idx_broker_txn_account_year ON broker_transactions(account_number, transaction_year);
+CREATE INDEX IF NOT EXISTS idx_broker_txn_ticker ON broker_transactions(ticker);
+
+-- ============================================================
+-- YEAR CLOSE STATUS: Archive/locking for year-end process
+-- ============================================================
+CREATE TABLE IF NOT EXISTS year_close_status (
+    year INTEGER PRIMARY KEY,
+    status TEXT DEFAULT 'open',
+    closed_datetime TEXT,
+    closed_by TEXT,
+    notes TEXT,
+    is_locked INTEGER DEFAULT 0
+);
 """
 
 
@@ -293,7 +373,8 @@ def migrate_database() -> int:
     # Map version number → migration function
     migrations = [
         (1, _migration_v1),
-        # Add new entries here: (2, _migration_v2), (3, _migration_v3), ...
+        (2, _migration_v2),
+        # Add new entries here: (3, _migration_v3), ...
     ]
 
     for version, fn in migrations:
@@ -319,16 +400,12 @@ def _migration_v1():
     pass
 
 
-# def _migration_v2():
-#     """
-#     v2: Example — add a 'tags' column to trades.
-#     Pattern: wrap ALTER TABLE in try/except in case it already ran.
-#     """
-#     with get_db() as conn:
-#         try:
-#             conn.execute("ALTER TABLE trades ADD COLUMN tags TEXT")
-#         except Exception:
-#             pass  # Column already exists — safe to ignore
+def _migration_v2():
+    """
+    v2: Add tables for YTD transaction uploads, account master, and year close status.
+    Tables are created automatically via init_database() calling SCHEMA_SQL.
+    """
+    pass
 
 
 def reset_database():
@@ -344,6 +421,10 @@ def reset_database():
     DROP TABLE IF EXISTS raw_transactions;
     DROP TABLE IF EXISTS raw_import_files;
     DROP TABLE IF EXISTS settings;
+    DROP TABLE IF EXISTS broker_transactions;
+    DROP TABLE IF EXISTS transaction_upload_batches;
+    DROP TABLE IF EXISTS account_master;
+    DROP TABLE IF EXISTS year_close_status;
     """
     with get_db() as conn:
         conn.executescript(drop_sql)

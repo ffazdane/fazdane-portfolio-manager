@@ -93,24 +93,29 @@ class SchwabParser(BrokerParser):
 
         # Get basic fields
         date_str = str(row.get(col_map.get('Date', 'Date'), '')).strip()
+        # Handle Schwab "MM/DD/YYYY as of MM/DD/YYYY" format
+        if ' as of ' in date_str.lower():
+            date_str = date_str.lower().split(' as of ')[0].strip()
+
         symbol = str(row.get(col_map.get('Symbol', 'Symbol'), '')).strip()
         description = str(row.get(col_map.get('Description', 'Description'), '')).strip()
         quantity = self._parse_number(row.get(col_map.get('Quantity', 'Quantity'), 0))
-        price = self._parse_number(row.get(col_map.get('Price', 'Price'), 0))
-        fees = self._parse_number(row.get(col_map.get('Fees & Comm', 'Fees & Comm'), 0))
-        amount = self._parse_number(row.get(col_map.get('Amount', 'Amount'), 0))
+        price    = self._parse_number(row.get(col_map.get('Price', 'Price'), 0))
+        fees     = self._parse_number(row.get(col_map.get('Fees & Comm', 'Fees & Comm'), 0))
+        amount   = self._parse_number(row.get(col_map.get('Amount', 'Amount'), 0))
 
         if not symbol or symbol == 'nan':
             return None
 
-        # Determine if this is an option trade
-        option_details = parse_schwab_description(description)
+        # Determine if this is an option trade - Try symbol first as it has the correct ticker
+        option_details = parse_occ_symbol(symbol)
+        
         if not option_details:
-            option_details = parse_occ_symbol(symbol)
+            from src.utils.option_symbols import parse_generic_option_symbol, parse_tastytrade_description
+            option_details = parse_generic_option_symbol(symbol) or parse_tastytrade_description(symbol)
             
         if not option_details:
-            from src.utils.option_symbols import parse_tastytrade_description, parse_generic_option_symbol
-            option_details = parse_tastytrade_description(symbol) or parse_generic_option_symbol(symbol)
+            option_details = parse_schwab_description(description)
 
         is_option = option_details is not None or self._looks_like_option(action, description)
 
@@ -186,12 +191,24 @@ class SchwabParser(BrokerParser):
         return any(kw in combined for kw in option_keywords)
 
     def _parse_number(self, value):
-        """Parse a number from various formats."""
-        if value is None or (isinstance(value, str) and value.strip() == ''):
-            return 0
+        """Parse a number from various formats. Always returns a float — never NaN or None."""
+        import math
+        if value is None:
+            return 0.0
         try:
+            if isinstance(value, float):
+                return 0.0 if math.isnan(value) else value
+            if isinstance(value, int):
+                return float(value)
             if isinstance(value, str):
-                value = value.replace(',', '').replace('$', '').replace('(', '-').replace(')', '').strip()
+                s = value.replace(',', '').replace('$', '').replace('(', '-').replace(')', '').strip()
+                if not s or s.lower() in ('nan', 'none', 'n/a', '--', ''):
+                    return 0.0
+                return float(s)
+            # pandas NA / numpy NaN
+            import pandas as pd
+            if pd.isna(value):
+                return 0.0
             return float(value)
         except (ValueError, TypeError):
-            return 0
+            return 0.0

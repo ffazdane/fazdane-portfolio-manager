@@ -14,17 +14,12 @@ from src.utils.auth import check_password
 if not check_password():
     st.stop()
 
-from app import init_app
 from src.database.queries import get_historical_trades, get_pnl_by_strategy, get_pnl_by_ticker
 from src.utils.formatting import (
     format_currency, format_date, status_badge, strategy_display_name, format_percentage
 )
 from src.journal.journal_manager import get_note_count
 
-st.set_page_config(page_title="History Log | Portfolio Manager", page_icon="📜", layout="wide")
-from src.utils.branding import setup_branding
-setup_branding()
-init_app()
 
 st.markdown("""
 <style> #MainMenu {visibility: hidden;} footer {visibility: hidden;} </style>

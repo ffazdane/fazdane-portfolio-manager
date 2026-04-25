@@ -86,21 +86,34 @@ def parse_generic_option_symbol(symbol):
     Parse a generic readable option symbol.
     Format: TICKER MM/DD/YYYY STRIKE P/C
     Examples:
-        'NFLX 04/24/2026 107.00 C'
+        'NFLX 04/24/2026 107.00 CALL'
         'SPY 12/20/2024 450 P'
     """
     if not symbol:
         return None
     
     symbol = symbol.strip().upper()
-    # Underlying, Date (MM/DD/YYYY or MM/DD/YY), Strike, P/C
+    
+    # Pattern 1: TICKER DATE STRIKE P/C (where P/C can be P, C, PUT, CALL)
     match = re.match(
-        r'^([A-Z0-9]{1,6})\s+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s+([\d\.]+)\s+([PC])$',
+        r'^([A-Z0-9]{1,6})\s+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s+([\d\.]+)\s+(P|C|PUT|CALL)$',
         symbol
     )
     if match:
-        return _build_from_match(match.group(1), match.group(2).replace('-', '/'), match.group(4), match.group(3))
+        pc = match.group(4)
+        put_call = 'C' if pc in ['C', 'CALL'] else 'P'
+        return _build_from_match(match.group(1), match.group(2).replace('-', '/'), put_call, match.group(3))
     
+    # Pattern 2: TICKER DATE P/C STRIKE
+    match = re.match(
+        r'^([A-Z0-9]{1,6})\s+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s+(P|C|PUT|CALL)\s*([\d\.]+)$',
+        symbol
+    )
+    if match:
+        pc = match.group(3)
+        put_call = 'C' if pc in ['C', 'CALL'] else 'P'
+        return _build_from_match(match.group(1), match.group(2).replace('-', '/'), put_call, match.group(4))
+
     return None
 
 

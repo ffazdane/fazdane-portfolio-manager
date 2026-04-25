@@ -13,7 +13,6 @@ from src.utils.auth import check_password
 if not check_password():
     st.stop()
 
-from app import init_app
 from src.database.queries import get_trade_by_id, get_trade_legs, get_active_trades, get_all_trades
 from src.utils.formatting import (
     format_currency, format_date, format_dte, format_delta, format_theta,
@@ -24,10 +23,6 @@ from src.journal.journal_manager import (
     add_journal_entry, get_trade_journal, get_available_note_types
 )
 
-st.set_page_config(page_title="Trade Detail | Portfolio Manager", page_icon="🔍", layout="wide")
-from src.utils.branding import setup_branding
-setup_branding()
-init_app()
 
 st.markdown("""
 <style>

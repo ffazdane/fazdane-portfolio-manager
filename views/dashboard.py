@@ -15,7 +15,6 @@ from src.utils.auth import check_password
 if not check_password():
     st.stop()
 
-from app import init_app
 from src.database.queries import (
     get_portfolio_summary, get_active_trades, get_pnl_by_strategy,
     get_pnl_by_ticker, get_trades_expiring_soon, get_trade_legs
@@ -27,10 +26,6 @@ from src.utils.formatting import (
 )
 from src.utils.option_symbols import calculate_dte
 
-st.set_page_config(page_title="Dashboard | Portfolio Manager", page_icon="📊", layout="wide")
-from src.utils.branding import setup_branding
-setup_branding()
-init_app()
 
 # Check and transition expired trades to history log on load
 from src.engine.lifecycle_manager import check_and_update_expired_trades
@@ -245,3 +240,87 @@ else:
 refresh_interval = int(get_portfolio_summary().get('active_count', 0)) > 0
 if refresh_interval:
     st.caption("💡 Dashboard auto-refreshes every 5 minutes when trades are active.")
+
+# ============================================================
+# HISTORICAL TRANSACTION ANALYTICS (multi-year)
+# ============================================================
+st.divider()
+st.markdown("**📁 Realized Transaction Analytics — Historical Overview**")
+
+try:
+    from src.database.queries import get_broker_transactions
+    from src.database.connection import get_db_readonly
+    import pandas as _pd
+
+    # Pull all years available
+    with get_db_readonly() as _conn:
+        _year_rows = _conn.execute(
+            "SELECT DISTINCT transaction_year FROM broker_transactions ORDER BY transaction_year DESC"
+        ).fetchall()
+    _all_years = [r['transaction_year'] for r in _year_rows]
+
+    if not _all_years:
+        st.info(
+            "No transaction history uploaded yet. "
+            "Use **📁 Broker Data Upload** to load TastyTrade or Schwab export files."
+        )
+    else:
+        # Build summary table across all years
+        _summary_rows = []
+        _current_year = datetime.now().year
+        for _y in _all_years:
+            _txns = get_broker_transactions(year=_y)
+            if not _txns:
+                continue
+            _df = _pd.DataFrame([dict(t) for t in _txns])
+            for _c in ['net_amount', 'fees', 'gross_amount', 'realized_pl']:
+                if _c in _df.columns:
+                    _df[_c] = _pd.to_numeric(_df[_c], errors='coerce').fillna(0)
+
+            _net   = _df['net_amount'].sum()  if 'net_amount'   in _df.columns else 0
+            _fees  = _df['fees'].sum()        if 'fees'         in _df.columns else 0
+            _gross = _df['gross_amount'].sum()if 'gross_amount' in _df.columns else 0
+            _accts = list(_df['account_number'].unique()) if 'account_number' in _df.columns else []
+            _summary_rows.append({
+                '_year': _y,
+                'Year':         str(_y) + (" ← Current" if _y == _current_year else ""),
+                'Transactions': len(_df),
+                'Net Cash Flow':f"${_net:,.2f}",
+                'Gross Flow':   f"${_gross:,.2f}",
+                'Fees':         f"${_fees:,.2f}",
+                'Accounts':     ', '.join(_accts),
+                '_net_raw':     _net,
+            })
+
+        if _summary_rows:
+            # Top-line current year KPIs
+            _cur = next((r for r in _summary_rows if r['_year'] == _current_year), None)
+            _prev = next((r for r in _summary_rows if r['_year'] == _current_year - 1), None)
+
+            _k1, _k2, _k3, _k4 = st.columns(4)
+            if _cur:
+                _delta = None
+                if _prev:
+                    _prev_net = _prev['_net_raw']
+                    _cur_net  = _cur['_net_raw']
+                    _delta    = f"vs {_current_year-1}: ${_cur_net - _prev_net:,.0f}"
+                _k1.metric(f"{_current_year} Net Flow",     _cur['Net Cash Flow'],  delta=_delta)
+                _k1_txn = _cur['Transactions']
+                _k2.metric(f"{_current_year} Transactions", f"{_k1_txn:,}")
+
+            if _prev:
+                _k3.metric(f"{_current_year-1} Net Flow",  _prev['Net Cash Flow'])
+                _k3_txn = _prev['Transactions']
+                _k4.metric(f"{_current_year-1} Transactions", f"{_k3_txn:,}")
+
+            # Year-over-year comparison table
+            _display_df = _pd.DataFrame(_summary_rows)[
+                ['Year','Transactions','Net Cash Flow','Gross Flow','Fees','Accounts']
+            ]
+            st.dataframe(_display_df, hide_index=True, use_container_width=True)
+
+            _years_str = ', '.join(str(r['_year']) for r in _summary_rows)
+            st.caption(f"Years in database: {_years_str} | [View full analytics →](YTD_Analytics)")
+
+except Exception:
+    pass
