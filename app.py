@@ -90,6 +90,7 @@ def main():
         ],
         "Analytics": [
             st.Page("views/ytd_analytics.py", title="YTD Analytics", icon="📈"),
+            st.Page("views/tax_center.py",    title="Tax Center",    icon="🧾"),
         ],
         "Year-End Controls": [
             st.Page("views/year_close.py", title="Year Close", icon="🔒"),
