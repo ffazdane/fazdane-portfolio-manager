@@ -215,7 +215,7 @@ with tab_upload:
                 st.download_button(
                     label="⬇️ Download Excel Report",
                     data=excel_bytes,
-                    file_name=f"TaxCenter_{year_label}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                    file_name=f"Broker Transactions_Tax_{year_label}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     type="primary",
                     use_container_width=True,
@@ -307,7 +307,7 @@ with tab_preview:
     st.download_button(
         label="⬇️ Download Full Excel Report",
         data=excel_bytes,
-        file_name=f"TaxCenter_{year_label}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+        file_name=f"Broker Transactions_Tax_{year_label}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         type="primary",
         use_container_width=False,
