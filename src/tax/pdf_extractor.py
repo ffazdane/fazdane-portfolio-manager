@@ -213,8 +213,8 @@ def _parse_tastytrade_text(all_text: str, broker: str, account: str,
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _FUTURES_TOTAL_RE = re.compile(
-    r'(?:--\s*)?(?P<label>Profit/\(Loss\) Realized on Futures (?:Contracts|Options))\s+'
-    r'in USD for (?P<year>\d{4})\s+\(?(?P<amt>[\d,]+\.\d{2})\)?',
+    r'(?:--\s*)?(?P<label>Profit/\(Loss\) Realized on Futures (?:Contracts|Options(?:\.\.)?))\s+'
+    r'in USD for (?P<year>\d{4})\s*\(?\s*(?P<amt>[\d,]+\.\d{2})\s*\)?',
     re.IGNORECASE
 )
 _FUTURES_AGG_RE = re.compile(
@@ -241,20 +241,20 @@ def _parse_futures_1099b_text(all_text: str, broker: str, account: str,
         is_opts = "Options" in label
 
         # If the number appears in parentheses in the source, negate it
-        # We check the surrounding text
         start = m.start()
-        ctx = all_text[max(0, start-5):m.end()+5]
+        ctx = all_text[max(0, start-10):m.end()+10]
+        # Regex already found it might be in parenthesis, let's just check the string matched or context
         if "(" in ctx.split(raw)[0][-5:]:
             amt = -(abs(amt)) if amt else amt
 
-        symbol = "/MES" if not is_opts else "/MES_OPT"
+        symbol = "ES" if not is_opts else "ES_OPT"
         desc = f"{'Futures Options' if is_opts else 'Futures Contracts'} — Annual Total {m.group('year')}"
         txn = _build_txn(
             broker, account, m.group("year"), source_file,
-            symbol_raw="ES" if not is_opts else "ES_OPT",
+            symbol_raw=symbol,
             cusip="", desc=desc,
             date_acq="", date_sold=f"{m.group('year')}-12-31",
-            qty=None,
+            qty=1.0,
             proceeds=None, cost_basis=None, wash=0.0,
             gain_loss=amt,
             term="UNKNOWN",
@@ -270,55 +270,65 @@ def _parse_futures_1099b_text(all_text: str, broker: str, account: str,
 # ═══════════════════════════════════════════════════════════════════════════════
 # STRATEGY 3: Schwab Composite text parser
 #
-# Schwab 1099 Composite has a summary table then detail sections.
-# We parse the summary table lines like:
-#   Short-term transactions for covered tax lots  146,215.24  150,249.98  0.00  0.00  -4,034.74
-# And also detailed individual transactions (if present).
+# Schwab 1099-B and 1256 detail sections:
+#   SPXW 04/04/2025 5950.00 C $ 680.30 $ 0.00 $ 0.00 $ 680.30
+#   GLD 06/20/2025 320.00 C SALE 1.00 05/06/25 05/19/25 $ 806.66 $ 139.34 $ (667.32)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_SCHWAB_SUMMARY_RE = re.compile(
-    r'(?P<section>Short-term|Long-term|Undetermined)\s+transactions\s+for\s+(?P<covered>covered|noncovered)\s+tax\s+lots'
-    r'\s+(?P<proceeds>[\d,]+\.\d{2})\s+(?P<cost>[\d,]+\.\d{2})\s+(?P<mktdisc>[\d,.-]+)\s+(?P<wash>[\d,.-]+)\s+(?P<gain>-?[\d,]+\.\d{2})',
-    re.IGNORECASE
+_SCHWAB_1099B_RE = re.compile(
+    r'(?P<symbol>[A-Z0-9]+)\s+(?P<exp>\d{2}/\d{2}/\d{4})\s+(?P<strike>[\d.]+)\s+(?P<type>[CP])\s+'
+    r'\$\s*(?P<proceeds>\(?[0-9,.]+\)?)\s+\$\s*(?P<cost>\(?[0-9,.]+\)?)\s+'
+    r'\$\s*(?P<wash>\(?[0-9,.]+\)?)\s+\$\s*(?P<gain>\(?[0-9,.]+\)?)'
 )
 
+_SCHWAB_1256_RE = re.compile(
+    r'(?P<symbol>[A-Z0-9]+)\s+(?P<exp>\d{2}/\d{2}/\d{4})\s+(?P<strike>[\d.]+)\s+(?P<type>[CP])\s+(?P<action>[A-Z]+)\s+'
+    r'(?P<qty>[\d.]+)\s+(?P<open_date>\d{2}/\d{2}/\d{2})\s+(?P<close_date>\d{2}/\d{2}/\d{2})\s+'
+    r'\$\s*(?P<open_amt>[\d,.]+)\s+\$\s*(?P<close_amt>[\d,.]+)\s+\$\s*(?P<gain>\(?[0-9,.]+\)?)'
+)
 
 def _parse_schwab_text(all_text: str, broker: str, account: str,
                        tax_year: str, source_file: str) -> list[dict]:
-    """Parse Schwab 1099 Composite — summary level first, detail if available."""
+    """Parse Schwab 1099 Composite."""
     transactions: list[dict] = []
+    
+    # Standard 1099-B rows
+    for m in _SCHWAB_1099B_RE.finditer(all_text):
+        sym = m.group("symbol")
+        desc = f"{'CALL' if m.group('type') == 'C' else 'PUT'} {sym} {m.group('exp')} {m.group('strike')}"
+        transactions.append(_build_txn(
+            broker, account, tax_year, source_file,
+            symbol_raw=sym,
+            cusip="", desc=desc,
+            date_acq="", date_sold=m.group("exp"),
+            qty=1.0, # Not provided in this summary line
+            proceeds=_parse_amount(m.group("proceeds")),
+            cost_basis=_parse_amount(m.group("cost")),
+            wash=_parse_amount(m.group("wash")),
+            gain_loss=_parse_amount(m.group("gain")),
+            term="UNKNOWN",
+            confidence="HIGH",
+            note="Schwab 1099-B Option"
+        ))
 
-    # Summary rows
-    for m in _SCHWAB_SUMMARY_RE.finditer(all_text):
-        section = m.group("section").upper().replace("-", "")[:5]  # SHORT / LONG
-        term = "SHORT" if "SHORT" in section else "LONG" if "LONG" in section else "UNKNOWN"
-        covered = m.group("covered").lower()
-        proceeds   = _parse_amount(m.group("proceeds"))
-        cost       = _parse_amount(m.group("cost"))
-        wash       = _parse_amount(m.group("wash")) or 0.0
-        gain_loss  = _parse_amount(m.group("gain"))
-
-        if proceeds == 0.0 and cost == 0.0:
-            continue  # skip zero rows
-
-        desc = f"{m.group('section').title()}-term {covered} tax lots summary"
+    # 1256 Detail rows
+    for m in _SCHWAB_1256_RE.finditer(all_text):
+        sym = m.group("symbol")
+        desc = f"{'CALL' if m.group('type') == 'C' else 'PUT'} {sym} {m.group('exp')} {m.group('strike')} ({m.group('action')})"
         txn = _build_txn(
             broker, account, tax_year, source_file,
-            symbol_raw="SCHWAB_SUMMARY",
+            symbol_raw=sym,
             cusip="", desc=desc,
-            date_acq="", date_sold=f"{tax_year}-12-31",
-            qty=None,
-            proceeds=proceeds, cost_basis=cost, wash=wash,
-            gain_loss=gain_loss,
-            term=term,
-            confidence="MEDIUM",
-            note="Summary-level row from Schwab composite; no per-ticker breakdown available here",
+            date_acq=m.group("open_date"), date_sold=m.group("close_date"),
+            qty=_parse_amount(m.group("qty")),
+            proceeds=None, cost_basis=None, wash=0.0,
+            gain_loss=_parse_amount(m.group("gain")),
+            term="UNKNOWN",
+            confidence="HIGH",
+            note="Schwab 1256 Option"
         )
+        txn["section_1256"] = True
         transactions.append(txn)
-
-    # Also try individual detail lines (same format as TastyTrade/Apex if present)
-    detail = _parse_tastytrade_text(all_text, broker, account, tax_year, source_file)
-    transactions.extend(detail)
 
     return transactions
 
