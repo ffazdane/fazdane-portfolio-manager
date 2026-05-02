@@ -89,7 +89,7 @@ def main():
             st.Page("views/broker_data_upload.py", title="Broker Data Upload", icon="📁"),
         ],
         "Analytics": [
-            st.Page("views/ytd_analytics.py", title="YTD Analytics", icon="📈"),
+            st.Page("views/trade_analytics.py", title="Trade Analytics", icon="📈"),
             st.Page("views/tax_center.py",    title="Tax Center",    icon="🧾"),
         ],
         "Year-End Controls": [
