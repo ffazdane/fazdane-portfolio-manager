@@ -85,7 +85,7 @@ def main():
             st.Page("views/manual_entry.py", title="Manual Entry", icon="✍️"),
         ],
         "Data Management": [
-            st.Page("views/imports.py", title="Imports", icon="📥"),
+            st.Page("views/imports.py", title="Portfolio Imports", icon="📥"),
             st.Page("views/broker_data_upload.py", title="Broker Data Upload", icon="📁"),
         ],
         "Analytics": [
