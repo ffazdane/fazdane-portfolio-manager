@@ -306,14 +306,42 @@ if table_data:
     df = pd.DataFrame(table_data)
     if 'DTE' in df.columns:
         df = df.sort_values('DTE', ascending=True).reset_index(drop=True)
-    
+
+    # ── Strategy colour palette ─────────────────────────────────────────────
+    # Each unique strategy gets a distinct semi-transparent background so rows
+    # are visually grouped at a glance.
+    STRATEGY_PALETTE = [
+        "rgba(0, 212, 170, 0.12)",    # teal
+        "rgba(99, 102, 241, 0.15)",   # indigo
+        "rgba(245, 158, 11, 0.13)",   # amber
+        "rgba(236, 72, 153, 0.13)",   # pink
+        "rgba(16, 185, 129, 0.13)",   # emerald
+        "rgba(239, 68, 68, 0.12)",    # red
+        "rgba(59, 130, 246, 0.15)",   # blue
+        "rgba(168, 85, 247, 0.14)",   # purple
+        "rgba(251, 191, 36, 0.13)",   # yellow
+        "rgba(20, 184, 166, 0.13)",   # cyan
+    ]
+
+    unique_strategies = list(dict.fromkeys(df['Strategy'].tolist()))
+    strategy_color_map = {
+        strat: STRATEGY_PALETTE[i % len(STRATEGY_PALETTE)]
+        for i, strat in enumerate(unique_strategies)
+    }
+
+    def highlight_strategy_row(row):
+        """Apply a per-strategy background colour to every cell in the row."""
+        color = strategy_color_map.get(row['Strategy'], '')
+        base = f'background-color: {color};' if color else ''
+        return [base] * len(row)
+
     def highlight_status(val):
         if 'Breached' in str(val):
-            return 'background-color: rgba(255, 75, 75, 0.2); color: #ff4b4b;'
+            return 'background-color: rgba(255, 75, 75, 0.35); color: #ff4b4b; font-weight:bold;'
         elif 'Warning' in str(val):
-            return 'background-color: rgba(255, 164, 33, 0.2); color: #ffa421;'
+            return 'background-color: rgba(255, 164, 33, 0.30); color: #ffa421; font-weight:bold;'
         return ''
-        
+
     def highlight_distances(val):
         try:
             v = float(val)
@@ -324,7 +352,7 @@ if table_data:
             return 'color: #9dff9d;'
         except ValueError:
             return ''
-            
+
     def highlight_daily(row):
         styles = [''] * len(row)
         try:
@@ -334,21 +362,49 @@ if table_data:
                 color = 'color: #00D4AA; font-weight: bold;'
             elif nc.startswith('-'):
                 color = 'color: #FF4B4B; font-weight: bold;'
-            
+
             if color:
                 px_idx = df.columns.get_loc('Current Px')
                 nc_idx = df.columns.get_loc('Net Change')
                 styles[px_idx] = color
                 styles[nc_idx] = color
-        except:
+        except Exception:
             pass
         return styles
-            
+
     def styling(styler):
-        return styler.apply(highlight_daily, axis=1) \
-                     .map(highlight_status, subset=['Status']) \
-                     .map(highlight_distances, subset=['Pts to Put', 'Pts to Call'])
-    
-    st.dataframe(df.style.pipe(styling), use_container_width=True, hide_index=True)
+        return (
+            styler
+            .apply(highlight_strategy_row, axis=1)
+            .apply(highlight_daily, axis=1)
+            .map(highlight_status, subset=['Status'])
+            .map(highlight_distances, subset=['Pts to Put', 'Pts to Call'])
+        )
+
+    # ── Legend: strategy → colour ───────────────────────────────────────────
+    legend_html = "<div style='display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;'>"
+    for strat, color in strategy_color_map.items():
+        legend_html += (
+            f"<span style='background:{color};border:1px solid rgba(255,255,255,0.15);"
+            f"padding:3px 12px;border-radius:20px;font-size:12px;color:#ddd;'>"
+            f"{strat}</span>"
+        )
+    legend_html += "</div>"
+    st.markdown(legend_html, unsafe_allow_html=True)
+
+    # ── Render grid — taller height so it fills the bottom of the page ──────
+    num_rows = len(df)
+    row_height = 35   # px per data row
+    header_height = 38
+    min_height = 600   # always fill a meaningful portion of the screen
+    max_height = 1000
+    computed_height = min(max_height, max(min_height, header_height + num_rows * row_height + 20))
+
+    st.dataframe(
+        df.style.pipe(styling),
+        use_container_width=True,
+        hide_index=True,
+        height=computed_height,
+    )
 else:
     st.info("No active trades with short legs found.")
