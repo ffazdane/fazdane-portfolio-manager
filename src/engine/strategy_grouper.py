@@ -58,18 +58,15 @@ def group_positions_into_trades(positions):
 
             # Create historical trade for closed legs
             if closed_legs:
-                closed_trade = _identify_strategy(closed_legs, account, broker, underlying)
-                if closed_trade:
-                    # Ensure status reflects closed state regardless of identification
-                    realized = closed_trade.get('realized_pnl', 0)
-                    closed_trade['status'] = 'CLOSED_WIN' if realized >= 0 else 'CLOSED_LOSS'
-                    trades.append(closed_trade)
+                for ct in _identify_strategies(closed_legs, account, broker, underlying):
+                    realized = ct.get('realized_pnl', 0)
+                    ct['status'] = 'CLOSED_WIN' if realized >= 0 else 'CLOSED_LOSS'
+                    trades.append(ct)
 
             # Create active trade for remaining open legs
             if open_legs:
-                open_trade = _identify_strategy(open_legs, account, broker, underlying)
-                if open_trade:
-                    trades.append(open_trade)
+                for ot in _identify_strategies(open_legs, account, broker, underlying):
+                    trades.append(ot)
 
     return trades
 
@@ -102,6 +99,69 @@ def _group_by_date_proximity(positions, max_days=1):
         groups.append(current_group)
 
     return groups
+
+
+def _identify_strategies(positions, account, broker, underlying):
+    """
+    Attempt to identify the strategy. If it falls back to CUSTOM and has 3+ option legs,
+    attempt to decompose it into valid 2-leg or 1-leg strategies.
+    Returns a list of trade dicts.
+    """
+    trade = _identify_strategy(positions, account, broker, underlying)
+    
+    if not trade:
+        return []
+        
+    # If it was identified cleanly or doesn't have enough legs to split, return it as-is
+    if trade['strategy_type'] != 'CUSTOM' or len(trade.get('legs', [])) < 3:
+        return [trade]
+        
+    # Try to decompose the custom lump
+    option_legs = [p for p in positions if p.get('expiry')]
+    equity_legs = [p for p in positions if not p.get('expiry')]
+    
+    if len(option_legs) < 2:
+        return [trade]
+
+    unassigned = option_legs.copy()
+    found_trades = []
+
+    def extract_pairs(strategy_types):
+        i = 0
+        while i < len(unassigned):
+            paired = False
+            for j in range(i + 1, len(unassigned)):
+                t = _identify_strategy([unassigned[i], unassigned[j]], account, broker, underlying)
+                if t and t['strategy_type'] in strategy_types:
+                    found_trades.append(t)
+                    unassigned.pop(j)
+                    unassigned.pop(i)
+                    paired = True
+                    break
+            if not paired:
+                i += 1
+
+    # Priority 1: Calendar Spreads (Same strike, diff expiry)
+    extract_pairs(['CALENDAR_SPREAD'])
+    
+    # Priority 2: Vertical Spreads (Same expiry, diff strike)
+    extract_pairs(['PUT_CREDIT_SPREAD', 'PUT_DEBIT_SPREAD', 'CALL_CREDIT_SPREAD', 'CALL_DEBIT_SPREAD'])
+    
+    # Priority 3: Diagonal Spreads (Diff expiry, diff strike)
+    extract_pairs(['DIAGONAL_SPREAD'])
+
+    # Whatever is left gets broken into single legs
+    for leg in unassigned:
+        t = _identify_strategy([leg], account, broker, underlying)
+        if t:
+            found_trades.append(t)
+            
+    if equity_legs:
+        t = _build_trade('EQUITY', equity_legs, account, broker, underlying)
+        if t:
+            found_trades.append(t)
+
+    return found_trades if found_trades else [trade]
 
 
 def _identify_strategy(positions, account, broker, underlying):

@@ -484,6 +484,42 @@ def delete_active_trades_by_account_and_underlying(account, underlyings):
         conn.execute(f"DELETE FROM trades WHERE trade_id IN ({trade_placeholders})", trade_ids)
 
 
+def delete_active_trades_by_account(account: str) -> int:
+    """
+    Delete ALL active trades and their legs for the given account number.
+
+    Used by the portfolio position-import flow where a full broker
+    position snapshot replaces whatever was previously stored for that account.
+
+    Returns:
+        Number of trade rows deleted.
+    """
+    if not account:
+        return 0
+    with get_db() as conn:
+        cursor = conn.execute(
+            """SELECT trade_id FROM trades
+               WHERE status IN ('ACTIVE', 'PARTIALLY_CLOSED', 'ADJUSTED', 'ROLLED_OPEN')
+               AND account = ?""",
+            (account,)
+        )
+        trade_ids = [row['trade_id'] for row in cursor.fetchall()]
+
+        if not trade_ids:
+            return 0
+
+        trade_placeholders = ",".join(["?"] * len(trade_ids))
+
+        # Cascade: delete alerts, snapshots, journal, legs, then trades
+        conn.execute(f"DELETE FROM alerts WHERE trade_id IN ({trade_placeholders})", trade_ids)
+        conn.execute(f"DELETE FROM trade_snapshots WHERE trade_id IN ({trade_placeholders})", trade_ids)
+        conn.execute(f"DELETE FROM trade_journal WHERE trade_id IN ({trade_placeholders})", trade_ids)
+        conn.execute(f"DELETE FROM trade_legs WHERE trade_id IN ({trade_placeholders})", trade_ids)
+        conn.execute(f"DELETE FROM trades WHERE trade_id IN ({trade_placeholders})", trade_ids)
+
+        return len(trade_ids)
+
+
 def upsert_market_quote(quote_data):
     """Insert or update a market quote."""
     with get_db() as conn:

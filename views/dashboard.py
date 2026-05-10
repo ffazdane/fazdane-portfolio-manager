@@ -1,5 +1,5 @@
 """
-Page 1: Dashboard
+Page 1: Portfolio Dashboard
 Portfolio overview with KPIs, charts, and alerts summary.
 """
 
@@ -50,7 +50,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("## 📊 Dashboard")
+st.markdown("## 📊 Portfolio Dashboard")
 
 account = st.session_state.get('selected_account')
 

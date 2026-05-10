@@ -30,6 +30,22 @@ SCHWAB_PATTERN = re.compile(
     r'Individual_(?P<account>[A-Z0-9]+)_Transactions_(?P<date>\d{8})', re.IGNORECASE
 )
 
+# ── Position-snapshot file patterns (new) ────────────────────────────────────
+
+# Schwab positions export:  Individual-Positions-2026-05-10-102628.csv
+SCHWAB_POSITIONS_PATTERN = re.compile(
+    r'Individual-Positions-\d{4}-\d{2}-\d{2}',
+    re.IGNORECASE
+)
+
+# Tastytrade positions export: tastytrade_positions_x5WT12803_260510.csv
+TASTYTRADE_POSITIONS_PATTERN = re.compile(
+    r'tastytrade_positions_x(?P<account>[A-Z0-9]+)_',
+    re.IGNORECASE
+)
+
+
+
 
 # ── Year helpers ──────────────────────────────────────────────────────────────
 
@@ -100,21 +116,39 @@ def detect_broker_and_account_from_filename(filename: str) -> dict:
             'broker':  'TastyTrade' | 'Schwab' | None,
             'account': 'ACCT_NUMBER' | None,
             'method':  'filename_pattern' | 'account_master' | None,
+            'file_kind': 'transaction' | 'position' | 'unknown',
         }
 
     Priority:
-      1. Known filename patterns (TastyTrade history, gain/loss, Schwab Individual_)
+      1. Known filename patterns (TastyTrade history, gain/loss, Schwab Individual_,
+         position snapshot variants)
       2. Substring match against every account_number in account_master
     """
-    result = {'broker': None, 'account': None, 'method': None}
+    result = {'broker': None, 'account': None, 'method': None, 'file_kind': 'unknown'}
 
-    # ── Pattern-based detection (fastest, no DB needed) ──────────────────────
-    if TASTYTRADE_HISTORY_PATTERN.search(filename) or TASTYTRADE_GAINLOSS_PATTERN.search(filename):
-        result['broker'] = 'TastyTrade'
-        result['method'] = 'filename_pattern'
+    # ── Position-snapshot patterns (checked first so they don't fall through) ─
+    tt_pos_m = TASTYTRADE_POSITIONS_PATTERN.search(filename)
+    if tt_pos_m:
+        result['broker']    = 'TastyTrade'
+        result['account']   = tt_pos_m.group('account')
+        result['method']    = 'filename_pattern'
+        result['file_kind'] = 'position'
+
+    elif SCHWAB_POSITIONS_PATTERN.search(filename):
+        result['broker']    = 'Schwab'
+        result['method']    = 'filename_pattern'
+        result['file_kind'] = 'position'
+        # Account for Schwab positions is extracted from file content, not filename
+
+    # ── Transaction history patterns ──────────────────────────────────────────
+    elif TASTYTRADE_HISTORY_PATTERN.search(filename) or TASTYTRADE_GAINLOSS_PATTERN.search(filename):
+        result['broker']    = 'TastyTrade'
+        result['method']    = 'filename_pattern'
+        result['file_kind'] = 'transaction'
     elif SCHWAB_PATTERN.search(filename):
-        result['broker'] = 'Schwab'
-        result['method'] = 'filename_pattern'
+        result['broker']    = 'Schwab'
+        result['method']    = 'filename_pattern'
+        result['file_kind'] = 'transaction'
 
     # ── Account master lookup ─────────────────────────────────────────────────
     # Supports:
@@ -145,7 +179,8 @@ def detect_broker_and_account_from_filename(filename: str) -> dict:
 
             if exact_match or suffix_match:
                 # Use the full token from the filename if we have it (e.g. XXX177)
-                result['account'] = filename_acct_token if suffix_match else acct_num
+                if not result['account']:
+                    result['account'] = filename_acct_token if suffix_match else acct_num
                 # Account master also tells us the broker
                 if not result['broker']:
                     result['broker'] = acct.get('broker_name')
@@ -160,6 +195,7 @@ def detect_broker_and_account_from_filename(filename: str) -> dict:
 
 
 def detect_file_type(filename: str) -> str:
+
     """
     Return 'history' for multi-year transaction history files,
     'gainloss' for tax worksheet files,

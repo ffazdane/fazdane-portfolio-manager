@@ -74,7 +74,7 @@ def main():
     # Define Navigation
     pages = {
         "Overview": [
-            st.Page("views/dashboard.py", title="Dashboard", icon="📊", default=True),
+            st.Page("views/dashboard.py", title="Portfolio Dashboard", icon="📊", default=True),
             st.Page("views/active_portfolio.py", title="Active Portfolio", icon="📈"),
             st.Page("views/portfolio_monitor.py", title="Portfolio Monitor", icon="🦅"),
             st.Page("views/risk_monitor.py", title="Risk Monitor", icon="⚠️"),
