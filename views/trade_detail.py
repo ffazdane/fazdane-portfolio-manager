@@ -359,8 +359,17 @@ with st.expander("➕ Add / Link Option Legs"):
         st.write("#### Transfer from Portfolio")
         from src.database.queries import get_active_trades, get_trade_legs, update_trade_leg
         
-        # Find open legs from other trades sharing the same underlying
-        active_trades_matching = [t for t in get_active_trades() if t['underlying'] == _safe(trade, 'underlying', '') and t['trade_id'] != selected_id]
+        # Find open legs from other trades sharing the same underlying AND same broker/account
+        # IMPORTANT: filter by broker + account to prevent cross-broker leg transfers
+        current_broker  = _safe(trade, 'broker', '')
+        current_account = _safe(trade, 'account', '')
+        active_trades_matching = [
+            t for t in get_active_trades()
+            if t['underlying'] == _safe(trade, 'underlying', '')
+            and t['trade_id'] != selected_id
+            and _safe(t, 'broker',  '') == current_broker
+            and _safe(t, 'account', '') == current_account
+        ]
         
         linkable_legs = {}
         for t_match in active_trades_matching:
