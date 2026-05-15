@@ -177,25 +177,26 @@ def _safe(row, key, default=None):
     except (KeyError, IndexError):
         return default
 
-# Aggregate all open legs by (Underlying, Expiry)
+# Aggregate all open legs by (Underlying, TradeID) so calendar spreads
+# — which have short + long legs at different expiries — appear on ONE row.
 grouped_legs = {}
 
 for trade in active_trades:
     tid = trade['trade_id']
     legs = get_trade_legs(tid)
-    
+
     # Calculate this trade's pnl info
-    realized = _safe(trade, 'realized_pnl', 0) or 0
+    realized   = _safe(trade, 'realized_pnl', 0) or 0
     unrealized = _safe(trade, 'unrealized_pnl', 0) or 0
-    t_pnl = realized + unrealized
+    t_pnl  = realized + unrealized
     t_cred = (_safe(trade, 'entry_credit_debit', 0) or 0) * 100
-    t_max = _safe(trade, 'max_profit', 0) or 0
-    
+    t_max  = _safe(trade, 'max_profit', 0) or 0
+
     for leg in legs:
         if leg['status'] != 'OPEN' or not leg['expiry']:
             continue
-            
-        key = (leg['underlying'], leg['expiry'], tid)
+
+        key = (leg['underlying'], tid)          # ← group by trade, not by expiry
         if key not in grouped_legs:
             grouped_legs[key] = {
                 'broker': _safe(trade, 'broker', ''),
@@ -206,44 +207,51 @@ for trade in active_trades:
                 'strategies': set(),
                 'processed_trades': set()
             }
-            
+
         grouped_legs[key]['legs'].append(leg)
         grouped_legs[key]['strategies'].add(trade['strategy_type'].replace('_', ' ').title())
-        
-        # Only add trade-level PNL once per trade per group
+
+        # Only add trade-level PNL once per group
         if tid not in grouped_legs[key]['processed_trades']:
-            grouped_legs[key]['pnl'] += t_pnl
-            grouped_legs[key]['credit'] += t_cred
+            grouped_legs[key]['pnl']        += t_pnl
+            grouped_legs[key]['credit']     += t_cred
             grouped_legs[key]['max_profit'] += t_max
             grouped_legs[key]['processed_trades'].add(tid)
 
 table_data = []
 
-for (underlying, expiry, tid), data in grouped_legs.items():
+for (underlying, tid), data in grouped_legs.items():
     legs = data['legs']
-    
-    # Find all strikes and quantities for each leg type
-    put_long_legs  = [l for l in legs if l['option_type'] == 'P' and l['side'] == 'LONG'  and l['strike']]
-    put_short_legs = [l for l in legs if l['option_type'] == 'P' and l['side'] == 'SHORT' and l['strike']]
-    call_short_legs= [l for l in legs if l['option_type'] == 'C' and l['side'] == 'SHORT' and l['strike']]
-    call_long_legs = [l for l in legs if l['option_type'] == 'C' and l['side'] == 'LONG'  and l['strike']]
 
-    put_longs  = [l['strike'] for l in put_long_legs]
-    put_shorts = [l['strike'] for l in put_short_legs]
-    call_shorts= [l['strike'] for l in call_short_legs]
-    call_longs = [l['strike'] for l in call_long_legs]
+    # ── Classify legs by option type + side ──────────────────────────────
+    put_long_legs   = [l for l in legs if l['option_type'] == 'P' and l['side'] == 'LONG'  and l['strike']]
+    put_short_legs  = [l for l in legs if l['option_type'] == 'P' and l['side'] == 'SHORT' and l['strike']]
+    call_short_legs = [l for l in legs if l['option_type'] == 'C' and l['side'] == 'SHORT' and l['strike']]
+    call_long_legs  = [l for l in legs if l['option_type'] == 'C' and l['side'] == 'LONG'  and l['strike']]
 
-    # Aggregate quantities (sum qty_open across legs of the same type)
-    qty_long_put   = sum(l.get('qty_open', 0) or 0 for l in put_long_legs)
-    qty_short_put  = sum(l.get('qty_open', 0) or 0 for l in put_short_legs)
-    qty_short_call = sum(l.get('qty_open', 0) or 0 for l in call_short_legs)
-    qty_long_call  = sum(l.get('qty_open', 0) or 0 for l in call_long_legs)
+    put_longs   = [l['strike'] for l in put_long_legs]
+    put_shorts  = [l['strike'] for l in put_short_legs]
+    call_shorts = [l['strike'] for l in call_short_legs]
+    call_longs  = [l['strike'] for l in call_long_legs]
 
-    # Sort them appropriately (inner vs outer wings)
-    put_short_strike = max(put_shorts) if put_shorts else None
-    put_long_strike  = min(put_longs)  if put_longs  else None
-    call_short_strike= min(call_shorts)if call_shorts else None
-    call_long_strike = max(call_longs) if call_longs  else None
+    # ── Safe qty helper (sqlite3.Row has no .get()) ────────────────────────
+    def _safe_qty(leg):
+        try:
+            v = leg['qty_open']
+            return v if v is not None else 0
+        except Exception:
+            return 0
+
+    qty_long_put   = sum(_safe_qty(l) for l in put_long_legs)
+    qty_short_put  = sum(_safe_qty(l) for l in put_short_legs)
+    qty_short_call = sum(_safe_qty(l) for l in call_short_legs)
+    qty_long_call  = sum(_safe_qty(l) for l in call_long_legs)
+
+    # ── Strikes ───────────────────────────────────────────────────────────
+    put_short_strike  = max(put_shorts)  if put_shorts  else None
+    put_long_strike   = min(put_longs)   if put_longs   else None
+    call_short_strike = min(call_shorts) if call_shorts else None
+    call_long_strike  = max(call_longs)  if call_longs  else None
 
     has_short = put_short_strike or call_short_strike
     has_long  = put_long_strike  or call_long_strike
@@ -251,7 +259,15 @@ for (underlying, expiry, tid), data in grouped_legs.items():
     # Skip rows with absolutely no option legs
     if not has_short and not has_long:
         continue
-        
+
+    # ── Expiry logic: near = short leg expiry, far = long leg expiry ──────
+    # For calendars the short and long legs have DIFFERENT expiries.
+    # We use the nearest expiry for DTE (that's the at-risk leg).
+    all_expiries = sorted(set(l['expiry'] for l in legs if l['expiry']))
+    near_expiry  = all_expiries[0]  if all_expiries else None
+    far_expiry   = all_expiries[-1] if len(all_expiries) > 1 else None   # None for same-expiry spreads
+    expiry       = near_expiry      # used for DTE and display
+
     dte = calculate_dte(expiry)
     quote = quotes.get(underlying, {})
     current_price = quote.get('underlying_price')
@@ -263,8 +279,12 @@ for (underlying, expiry, tid), data in grouped_legs.items():
     max_p = data['max_profit']
     pct_max_profit = (total_pnl / max_p * 100) if (max_p and max_p > 0) else None
     
-    if not put_short_strike and not call_short_strike:
+    # Status label
+    if not has_short and has_long:
         status_label = "☑️ Active (Long)"
+    elif has_short and has_long and far_expiry:
+        # Both legs open at different expiries → full calendar position
+        status_label = "☑️ Inside"
     else:
         status_label = "☑️ Inside"
     if current_price:
@@ -287,32 +307,37 @@ for (underlying, expiry, tid), data in grouped_legs.items():
     raw_broker = data['broker'].lower()
     broker_dot = '🔴' if 'tasty' in raw_broker else ('🔵' if 'schwab' in raw_broker else '⚪')
     
-    # Build qty label strings — show value only when > 0
-    def _qty(n): return str(int(n)) if n else '—'
+    # Build qty strings — '0' when no contracts of that type
+    def _qty(n): return str(int(n)) if n is not None else '0'
+    def _strike(v): return f"{v:.2f}" if v else '—'
 
     table_data.append({
-        'Source': broker_dot,
-        'Symbol': underlying,
-        'Strategy': strat_name,
-        'Expiry': expiry,
-        'DTE': dte if dte is not None else 0,
-        'Earnings': earnings_dates.get(underlying, '—'),
-        'Qty LC': _qty(qty_long_call),
-        'Qty SC': _qty(qty_short_call),
-        'Qty LP': _qty(qty_long_put),
-        'Qty SP': _qty(qty_short_put),
-        'Put Long': f"{put_long_strike:.2f}" if put_long_strike else '—',
-        'Put Short': f"{put_short_strike:.2f}" if put_short_strike else '—',
-        'Call Short': f"{call_short_strike:.2f}" if call_short_strike else '—',
-        'Call Long': f"{call_long_strike:.2f}" if call_long_strike else '—',
-        'Current Px': f"{current_price:.2f}" if current_price else '—',
-        'Net Change': f"{net_change:+.2f}" if net_change is not None else '—',
-        'Pts to Put': f"{pts_to_put_short:.2f}" if pts_to_put_short is not None else '—',
-        'Pts to Call': f"{pts_to_call_short:.2f}" if pts_to_call_short is not None else '—',
-        'Credit Recv': format_currency(data['credit']),
-        'P&L $': format_currency(total_pnl),
-        '% Max Profit': f"{pct_max_profit:.1f}%" if pct_max_profit is not None else '—',
-        'Status': status_label
+        'Source':        broker_dot,
+        'Symbol':        underlying,
+        'Strategy':      strat_name,
+        'Expiry':        expiry,
+        'Far Expiry':    far_expiry if far_expiry else '—',
+        'DTE':           dte if dte is not None else 0,
+        'Earnings':      earnings_dates.get(underlying, '—'),
+        # ── PUT side ───────────────────────────────────────────
+        'P Long Str':    _strike(put_long_strike),
+        'P Long Qty':    _qty(qty_long_put),
+        'P Short Str':   _strike(put_short_strike),
+        'P Short Qty':   _qty(qty_short_put),
+        # ── CALL side ──────────────────────────────────────────
+        'C Short Str':   _strike(call_short_strike),
+        'C Short Qty':   _qty(qty_short_call),
+        'C Long Str':    _strike(call_long_strike),
+        'C Long Qty':    _qty(qty_long_call),
+        # ── Market / Risk ──────────────────────────────────────
+        'Current Px':    f"{current_price:.2f}" if current_price else '—',
+        'Net Change':    f"{net_change:+.2f}" if net_change is not None else '—',
+        'Pts to Put':    f"{pts_to_put_short:.2f}" if pts_to_put_short is not None else '—',
+        'Pts to Call':   f"{pts_to_call_short:.2f}" if pts_to_call_short is not None else '—',
+        'Credit Recv':   format_currency(data['credit']),
+        'P&L $':         format_currency(total_pnl),
+        '% Max Profit':  f"{pct_max_profit:.1f}%" if pct_max_profit is not None else '—',
+        'Status':        status_label
     })
 
 if table_data:
@@ -385,13 +410,24 @@ if table_data:
             pass
         return styles
 
+    def highlight_qty(val):
+        """Dim zero-quantity cells so non-zero stands out."""
+        try:
+            if int(val) == 0:
+                return 'color: #555; font-style: italic;'
+            return 'color: #e0e0e0; font-weight: bold;'
+        except (ValueError, TypeError):
+            return ''
+
     def styling(styler):
+        qty_cols = [c for c in df.columns if 'Qty' in c]
         return (
             styler
             .apply(highlight_strategy_row, axis=1)
             .apply(highlight_daily, axis=1)
             .map(highlight_status, subset=['Status'])
             .map(highlight_distances, subset=['Pts to Put', 'Pts to Call'])
+            .map(highlight_qty, subset=qty_cols)
         )
 
     # ── Legend: strategy → colour ───────────────────────────────────────────
