@@ -292,9 +292,9 @@ for (underlying, tid), data in grouped_legs.items():
             status_label = "⚠️ Breached (Call)"
         elif put_short_strike and current_price <= put_short_strike:
             status_label = "⚠️ Breached (Put)"
-        elif pts_to_call_short and pts_to_call_short < (0.02 * current_price):
+        elif pts_to_call_short and pts_to_call_short > 0 and pts_to_call_short < (0.02 * current_price):
             status_label = "🟡 Warning (Call)"
-        elif pts_to_put_short and pts_to_put_short < (0.02 * current_price):
+        elif pts_to_put_short and pts_to_put_short > 0 and pts_to_put_short < (0.02 * current_price):
             status_label = "🟡 Warning (Put)"
             
     # Determine synthetic strategy name if multiple were combined
