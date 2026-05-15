@@ -222,29 +222,35 @@ table_data = []
 for (underlying, expiry, tid), data in grouped_legs.items():
     legs = data['legs']
     
-    # Find all strikes for each leg type
-    put_longs = [l['strike'] for l in legs if l['option_type'] == 'P' and l['side'] == 'LONG' and l['strike']]
-    put_shorts = [l['strike'] for l in legs if l['option_type'] == 'P' and l['side'] == 'SHORT' and l['strike']]
-    call_shorts = [l['strike'] for l in legs if l['option_type'] == 'C' and l['side'] == 'SHORT' and l['strike']]
-    call_longs = [l['strike'] for l in legs if l['option_type'] == 'C' and l['side'] == 'LONG' and l['strike']]
-    
+    # Find all strikes and quantities for each leg type
+    put_long_legs  = [l for l in legs if l['option_type'] == 'P' and l['side'] == 'LONG'  and l['strike']]
+    put_short_legs = [l for l in legs if l['option_type'] == 'P' and l['side'] == 'SHORT' and l['strike']]
+    call_short_legs= [l for l in legs if l['option_type'] == 'C' and l['side'] == 'SHORT' and l['strike']]
+    call_long_legs = [l for l in legs if l['option_type'] == 'C' and l['side'] == 'LONG'  and l['strike']]
+
+    put_longs  = [l['strike'] for l in put_long_legs]
+    put_shorts = [l['strike'] for l in put_short_legs]
+    call_shorts= [l['strike'] for l in call_short_legs]
+    call_longs = [l['strike'] for l in call_long_legs]
+
+    # Aggregate quantities (sum qty_open across legs of the same type)
+    qty_long_put   = sum(l.get('qty_open', 0) or 0 for l in put_long_legs)
+    qty_short_put  = sum(l.get('qty_open', 0) or 0 for l in put_short_legs)
+    qty_short_call = sum(l.get('qty_open', 0) or 0 for l in call_short_legs)
+    qty_long_call  = sum(l.get('qty_open', 0) or 0 for l in call_long_legs)
+
     # Sort them appropriately (inner vs outer wings)
     put_short_strike = max(put_shorts) if put_shorts else None
-    put_long_strike = min(put_longs) if put_longs else None
-    call_short_strike = min(call_shorts) if call_shorts else None
-    call_long_strike = max(call_longs) if call_longs else None
-    
+    put_long_strike  = min(put_longs)  if put_longs  else None
+    call_short_strike= min(call_shorts)if call_shorts else None
+    call_long_strike = max(call_longs) if call_longs  else None
+
     has_short = put_short_strike or call_short_strike
-    has_long = put_long_strike or call_long_strike
-    
+    has_long  = put_long_strike  or call_long_strike
+
+    # Skip rows with absolutely no option legs
     if not has_short and not has_long:
         continue
-        
-    # If it's a purely long position, only monitor it if it's a 1-leg strategy
-    if not has_short and has_long:
-        is_single = any("single" in s.lower() for s in data['strategies'])
-        if not is_single:
-            continue
         
     dte = calculate_dte(expiry)
     quote = quotes.get(underlying, {})
@@ -281,6 +287,9 @@ for (underlying, expiry, tid), data in grouped_legs.items():
     raw_broker = data['broker'].lower()
     broker_dot = '🔴' if 'tasty' in raw_broker else ('🔵' if 'schwab' in raw_broker else '⚪')
     
+    # Build qty label strings — show value only when > 0
+    def _qty(n): return str(int(n)) if n else '—'
+
     table_data.append({
         'Source': broker_dot,
         'Symbol': underlying,
@@ -288,6 +297,10 @@ for (underlying, expiry, tid), data in grouped_legs.items():
         'Expiry': expiry,
         'DTE': dte if dte is not None else 0,
         'Earnings': earnings_dates.get(underlying, '—'),
+        'Qty LC': _qty(qty_long_call),
+        'Qty SC': _qty(qty_short_call),
+        'Qty LP': _qty(qty_long_put),
+        'Qty SP': _qty(qty_short_put),
         'Put Long': f"{put_long_strike:.2f}" if put_long_strike else '—',
         'Put Short': f"{put_short_strike:.2f}" if put_short_strike else '—',
         'Call Short': f"{call_short_strike:.2f}" if call_short_strike else '—',
@@ -407,4 +420,4 @@ if table_data:
         height=computed_height,
     )
 else:
-    st.info("No active trades with short legs found.")
+    st.info("No active positions found. Import data to populate the monitor.")
