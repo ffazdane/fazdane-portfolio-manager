@@ -272,8 +272,28 @@ for (underlying, tid), data in grouped_legs.items():
     quote = quotes.get(underlying, {})
     current_price = quote.get('underlying_price')
     
-    pts_to_put_short = (current_price - put_short_strike) if (current_price and put_short_strike) else None
-    pts_to_call_short = (call_short_strike - current_price) if (current_price and call_short_strike) else None
+    # ── Distance to strike ────────────────────────────────────────────────
+    # Convention: positive = price hasn't reached the strike (OTM / safe)
+    #             negative = price has passed the strike   (ITM / breached)
+    #
+    # PUT  distance: price - strike  (↑ positive when price is above put strike)
+    # CALL distance: strike - price  (↑ positive when price is below call strike)
+    #
+    # For spreads   : use the SHORT (inner) strike — that's the at-risk level.
+    # For single leg: fall back to the LONG strike so the column is never blank.
+    if current_price and put_short_strike:
+        pts_to_put = current_price - put_short_strike
+    elif current_price and put_long_strike:
+        pts_to_put = current_price - put_long_strike   # long put: OTM=+, ITM=-
+    else:
+        pts_to_put = None
+
+    if current_price and call_short_strike:
+        pts_to_call = call_short_strike - current_price
+    elif current_price and call_long_strike:
+        pts_to_call = call_long_strike - current_price  # long call: OTM=+, ITM=-
+    else:
+        pts_to_call = None
     
     total_pnl = data['pnl']
     max_p = data['max_profit']
@@ -292,9 +312,9 @@ for (underlying, tid), data in grouped_legs.items():
             status_label = "⚠️ Breached (Call)"
         elif put_short_strike and current_price <= put_short_strike:
             status_label = "⚠️ Breached (Put)"
-        elif pts_to_call_short and pts_to_call_short > 0 and pts_to_call_short < (0.02 * current_price):
+        elif pts_to_call and pts_to_call > 0 and pts_to_call < (0.02 * current_price):
             status_label = "🟡 Warning (Call)"
-        elif pts_to_put_short and pts_to_put_short > 0 and pts_to_put_short < (0.02 * current_price):
+        elif pts_to_put and pts_to_put > 0 and pts_to_put < (0.02 * current_price):
             status_label = "🟡 Warning (Put)"
             
     # Determine synthetic strategy name if multiple were combined
@@ -332,8 +352,8 @@ for (underlying, tid), data in grouped_legs.items():
         # ── Market / Risk ──────────────────────────────────────
         'Current Px':    f"{current_price:.2f}" if current_price else '—',
         'Net Change':    f"{net_change:+.2f}" if net_change is not None else '—',
-        'Pts to Put':    f"{pts_to_put_short:.2f}" if pts_to_put_short is not None else '—',
-        'Pts to Call':   f"{pts_to_call_short:.2f}" if pts_to_call_short is not None else '—',
+        'Pts to Put':    f"{pts_to_put:.2f}"  if pts_to_put  is not None else '—',
+        'Pts to Call':   f"{pts_to_call:.2f}" if pts_to_call is not None else '—',
         'Credit Recv':   format_currency(data['credit']),
         'P&L $':         format_currency(total_pnl),
         '% Max Profit':  f"{pct_max_profit:.1f}%" if pct_max_profit is not None else '—',
