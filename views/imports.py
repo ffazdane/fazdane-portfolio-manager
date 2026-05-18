@@ -5,7 +5,7 @@ Upload broker files – both transaction history and live position snapshots.
 Portfolio Import tab:
   - Accepts Schwab (Individual-Positions-*) and Tastytrade (tastytrade_positions_x*) CSVs
   - Auto-detects the broker and account number from the filename
-  - REPLACES all active trades for that account with the contents of the file
+  - REPLACES all active trades for that broker with the contents of the file
   - This gives an exact mirror of the broker's current position list
 
 Transaction Import tab (unchanged):
@@ -26,7 +26,7 @@ if not check_password():
 
 from src.database.queries import (
     get_import_history, insert_normalized_transactions_bulk,
-    delete_active_trades_by_account,
+    delete_active_trades_by_broker,
 )
 from src.ingestion.file_manager import compute_file_hash, is_duplicate_file, archive_file, register_import
 from src.ingestion.tastytrade_parser import TastytradeParser
@@ -162,26 +162,29 @@ with tab_pos:
             st.divider()
             st.markdown("#### Confirm Import")
 
-            # Show current active trade count for this account
+            # Show current active trade count for this broker
             from src.database.queries import get_active_trades
-            current_trades = get_active_trades(account=used_account)
+            current_trades = [
+                t for t in get_active_trades()
+                if (t['broker'] or '').lower() == (used_broker or '').lower()
+            ]
             if current_trades:
                 st.warning(
-                    f"⚠️ **{len(current_trades)} active trade(s)** currently exist for account "
-                    f"`{used_account}`. They will be **permanently deleted** and replaced with the "
+                    f"⚠️ **{len(current_trades)} active trade(s)** currently exist for broker "
+                    f"`{used_broker}`. They will be **permanently deleted** and replaced with the "
                     f"{len(positions)} positions from this file."
                 )
             else:
-                st.info(f"No existing active trades for account `{used_account}`. Positions will be added fresh.")
+                st.info(f"No existing active trades for broker `{used_broker}`. Positions will be added fresh.")
 
             if st.button(
-                f"🔄 Replace Portfolio for `{used_account}`",
+                f"🔄 Replace `{used_broker}` Portfolio",
                 type="primary",
                 key="confirm_pos_import",
             ):
                 with st.spinner("Importing positions…"):
-                    # 1. Delete all active trades for this account
-                    deleted = delete_active_trades_by_account(used_account)
+                    # 1. Delete all active trades for this broker
+                    deleted = delete_active_trades_by_broker(used_broker)
 
                     # 2. Group positions into strategy trades
                     trades = group_positions_into_trades(positions)
@@ -193,7 +196,7 @@ with tab_pos:
 
                 st.success(f"""
 ✅ **Portfolio Import Complete!**
-- 🗑️ {deleted} old active trade(s) removed for `{used_account}`
+- 🗑️ {deleted} old active trade(s) removed for broker `{used_broker}`
 - 📥 {len(positions)} positions imported
 - 🗂️ {len(trade_ids)} strategy group(s) created
                 """)
