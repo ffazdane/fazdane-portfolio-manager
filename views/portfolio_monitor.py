@@ -481,7 +481,9 @@ if table_data:
     total_credit = sum(p['credit'] for p in raw_positions)
     breached_count = sum(1 for p in raw_positions if 'Breached' in p['status'])
     warning_count = sum(1 for p in raw_positions if 'Warning' in p['status'])
-    avg_dte = sum(p['dte'] for p in raw_positions) / total_positions if total_positions > 0 else 0
+    
+    import math
+    avg_dte = int(math.ceil(sum(p['dte'] for p in raw_positions) / total_positions)) if total_positions > 0 else 0
 
     st.markdown('<div class="section-header">Portfolio Monitor Overview</div>', unsafe_allow_html=True)
     c1, c2, c3, c4, c5, c6 = st.columns(6)
@@ -500,7 +502,7 @@ if table_data:
         st.markdown(f"""
             <div class="kpi-card">
                 <div class="kpi-label">Avg DTE</div>
-                <div class="kpi-value {dte_color_class}">{avg_dte:.1f}</div>
+                <div class="kpi-value {dte_color_class}">{avg_dte}</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -564,7 +566,7 @@ if table_data:
                 'Positions': len(pos_list),
                 'Open P&L': s_pnl,
                 'Credit Collected': s_credit,
-                'Avg DTE': round(s_dte, 1),
+                'Avg DTE': int(math.ceil(s_dte)),
                 'Status Summary': status_summary
             })
             
@@ -576,7 +578,8 @@ if table_data:
         def style_strat_df(styler):
             return styler.format({
                 'Open P&L': lambda v: f"${v:,.2f}" if v >= 0 else f"-${abs(v):,.2f}",
-                'Credit Collected': lambda v: f"${v:,.2f}"
+                'Credit Collected': lambda v: f"${v:,.2f}",
+                'Avg DTE': lambda v: f"{int(v)}"
             }).map(
                 lambda val: 'color: #00D4AA; font-weight: bold;' if isinstance(val, (int, float)) and val > 0 else (
                     'color: #FF4B4B; font-weight: bold;' if isinstance(val, (int, float)) and val < 0 else ''
