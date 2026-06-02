@@ -50,8 +50,8 @@ st.markdown("""
     .kpi-warning { color: #FFA421; }
     
     .strat-chip {
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: var(--chip-bg, rgba(255, 255, 255, 0.03));
+        border: 1px solid var(--chip-border, rgba(255, 255, 255, 0.08));
         border-radius: 8px;
         padding: 6px 12px;
         display: flex;
@@ -60,10 +60,9 @@ st.markdown("""
         transition: all 0.2s ease;
     }
     .strat-chip:hover {
-        background: rgba(0, 212, 170, 0.05);
-        border-color: rgba(0, 212, 170, 0.3);
+        filter: brightness(1.25);
         transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(0, 212, 170, 0.08);
+        box-shadow: 0 4px 12px var(--chip-border, rgba(255, 255, 255, 0.08));
     }
 </style>
 """, unsafe_allow_html=True)
@@ -411,6 +410,28 @@ if table_data:
     if 'DTE' in df.columns:
         df = df.sort_values('DTE', ascending=True).reset_index(drop=True)
 
+    # ── Strategy colour palette ─────────────────────────────────────────────
+    # Each unique strategy gets a distinct semi-transparent background so rows
+    # are visually grouped at a glance.
+    STRATEGY_PALETTE = [
+        "rgba(0, 212, 170, 0.12)",    # teal
+        "rgba(99, 102, 241, 0.15)",   # indigo
+        "rgba(245, 158, 11, 0.13)",   # amber
+        "rgba(236, 72, 153, 0.13)",   # pink
+        "rgba(16, 185, 129, 0.13)",   # emerald
+        "rgba(239, 68, 68, 0.12)",    # red
+        "rgba(59, 130, 246, 0.15)",   # blue
+        "rgba(168, 85, 247, 0.14)",   # purple
+        "rgba(251, 191, 36, 0.13)",   # yellow
+        "rgba(20, 184, 166, 0.13)",   # cyan
+    ]
+
+    unique_strategies = list(dict.fromkeys(df['Strategy'].tolist()))
+    strategy_color_map = {
+        strat: STRATEGY_PALETTE[i % len(STRATEGY_PALETTE)]
+        for i, strat in enumerate(unique_strategies)
+    }
+
     # ─── KPIs and Strategy Analysis ─────────────────────────────────────────
     import plotly.express as px
     import plotly.graph_objects as go
@@ -504,7 +525,12 @@ if table_data:
             elif "Single Call" in strat:
                 display_name = "Single Calls"
                 
-            chips_html += f'<div class="strat-chip"><span style="font-weight: 700; color: #00D4AA; font-size: 16px;">{count}</span><span style="font-size: 12px; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px;">{display_name}</span></div>'
+            color = strategy_color_map.get(strat, "rgba(255,255,255,0.08)")
+            parts = color.rsplit(',', 1)
+            solid_color = parts[0] + ', 1.0)' if len(parts) > 1 else color
+            border_color = parts[0] + ', 0.35)' if len(parts) > 1 else color
+            
+            chips_html += f'<div class="strat-chip" style="--chip-bg: {color}; --chip-border: {border_color};"><span style="font-weight: 700; color: {solid_color}; font-size: 16px;">{count}</span><span style="font-size: 12px; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px;">{display_name}</span></div>'
         chips_html += "</div>"
         st.markdown(chips_html, unsafe_allow_html=True)
 
@@ -609,27 +635,7 @@ if table_data:
 
     st.markdown('<div class="section-header">Position Monitor Grid</div>', unsafe_allow_html=True)
 
-    # ── Strategy colour palette ─────────────────────────────────────────────
-    # Each unique strategy gets a distinct semi-transparent background so rows
-    # are visually grouped at a glance.
-    STRATEGY_PALETTE = [
-        "rgba(0, 212, 170, 0.12)",    # teal
-        "rgba(99, 102, 241, 0.15)",   # indigo
-        "rgba(245, 158, 11, 0.13)",   # amber
-        "rgba(236, 72, 153, 0.13)",   # pink
-        "rgba(16, 185, 129, 0.13)",   # emerald
-        "rgba(239, 68, 68, 0.12)",    # red
-        "rgba(59, 130, 246, 0.15)",   # blue
-        "rgba(168, 85, 247, 0.14)",   # purple
-        "rgba(251, 191, 36, 0.13)",   # yellow
-        "rgba(20, 184, 166, 0.13)",   # cyan
-    ]
 
-    unique_strategies = list(dict.fromkeys(df['Strategy'].tolist()))
-    strategy_color_map = {
-        strat: STRATEGY_PALETTE[i % len(STRATEGY_PALETTE)]
-        for i, strat in enumerate(unique_strategies)
-    }
 
     def highlight_strategy_row(row):
         """Apply a per-strategy background colour to every cell in the row."""
