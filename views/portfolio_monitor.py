@@ -97,6 +97,7 @@ if underlyings:
             if not quotes[u].get('underlying_price'):
                 quotes[u]['underlying_price'] = d.get('price')
             quotes[u]['net_change'] = d.get('net_change')
+            quotes[u]['atr'] = d.get('atr')
 
     # ── Data Source Status Bar ──────────────────────────────────────────
     tt_count  = len(tt_prices)
@@ -271,6 +272,7 @@ for (underlying, tid), data in grouped_legs.items():
     dte = calculate_dte(expiry)
     quote = quotes.get(underlying, {})
     current_price = quote.get('underlying_price')
+    atr = quote.get('atr')
     
     # ── Distance to strike ────────────────────────────────────────────────
     # Convention: positive = price hasn't reached the strike (OTM / safe)
@@ -294,6 +296,17 @@ for (underlying, tid), data in grouped_legs.items():
         pts_to_call = call_long_strike - current_price  # long call: OTM=+, ITM=-
     else:
         pts_to_call = None
+
+    import math
+    days_to_put = None
+    if pts_to_put is not None and atr is not None and atr > 0:
+        ratio = pts_to_put / atr
+        days_to_put = math.ceil(ratio) if ratio >= 0 else math.floor(ratio)
+
+    days_to_call = None
+    if pts_to_call is not None and atr is not None and atr > 0:
+        ratio = pts_to_call / atr
+        days_to_call = math.ceil(ratio) if ratio >= 0 else math.floor(ratio)
     
     total_pnl = data['pnl']
     max_p = data['max_profit']
@@ -352,8 +365,11 @@ for (underlying, tid), data in grouped_legs.items():
         # ── Market / Risk ──────────────────────────────────────
         'Current Px':    f"{current_price:.2f}" if current_price else '—',
         'Net Change':    f"{net_change:+.2f}" if net_change is not None else '—',
+        'ATR':           f"{atr:.2f}" if atr is not None else '—',
         'Pts to Put':    f"{pts_to_put:.2f}"  if pts_to_put  is not None else '—',
+        'Days to Put':   f"{int(days_to_put)}" if days_to_put is not None else '—',
         'Pts to Call':   f"{pts_to_call:.2f}" if pts_to_call is not None else '—',
+        'Days to Call':  f"{int(days_to_call)}" if days_to_call is not None else '—',
         'Credit Recv':   format_currency(data['credit']),
         'P&L $':         format_currency(total_pnl),
         '% Max Profit':  f"{pct_max_profit:.1f}%" if pct_max_profit is not None else '—',
@@ -439,6 +455,30 @@ if table_data:
         except (ValueError, TypeError):
             return ''
 
+    def highlight_earnings(val):
+        if not val or val == '—':
+            return ''
+        try:
+            earn_date = datetime.strptime(val, '%Y-%m-%d').date()
+            today = datetime.today().date()
+            delta_days = (earn_date - today).days
+            if -1 <= delta_days <= 7:
+                return 'background-color: rgba(255, 75, 75, 0.35); color: #ff4b4b; font-weight: bold; border: 1px solid #ff4b4b;'
+        except Exception:
+            pass
+        return ''
+
+    def highlight_days_to_pc(val):
+        try:
+            v = float(val)
+            if v < 0:
+                return 'color: #ff4b4b; font-weight: bold;'
+            elif v < 2:
+                return 'color: #ffa421; font-weight: bold;'
+            return 'color: #9dff9d;'
+        except ValueError:
+            return ''
+
     def styling(styler):
         qty_cols = [c for c in df.columns if 'Qty' in c]
         return (
@@ -448,6 +488,8 @@ if table_data:
             .map(highlight_status, subset=['Status'])
             .map(highlight_distances, subset=['Pts to Put', 'Pts to Call'])
             .map(highlight_qty, subset=qty_cols)
+            .map(highlight_earnings, subset=['Earnings'])
+            .map(highlight_days_to_pc, subset=['Days to Put', 'Days to Call'])
         )
 
     # ── Legend: strategy → colour ───────────────────────────────────────────
