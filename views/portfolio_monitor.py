@@ -46,6 +46,25 @@ st.markdown("""
     div[data-testid="stDataFrame"] table {
         font-size: 13px !important;
     }
+    
+    .kpi-warning { color: #FFA421; }
+    
+    .strat-chip {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        padding: 6px 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.2s ease;
+    }
+    .strat-chip:hover {
+        background: rgba(0, 212, 170, 0.05);
+        border-color: rgba(0, 212, 170, 0.3);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0, 212, 170, 0.08);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -67,7 +86,8 @@ if "refresh_msg" in st.session_state:
     del st.session_state.refresh_msg
 
 # Fetch Data
-active_trades = get_active_trades()
+account = st.session_state.get('selected_account')
+active_trades = get_active_trades(account)
 underlyings = list(set([t['underlying'] for t in active_trades])) if active_trades else []
 quotes = get_latest_quotes_batch(underlyings)
 
@@ -220,6 +240,7 @@ for trade in active_trades:
             grouped_legs[key]['processed_trades'].add(tid)
 
 table_data = []
+raw_positions = []
 
 for (underlying, tid), data in grouped_legs.items():
     legs = data['legs']
@@ -376,10 +397,217 @@ for (underlying, tid), data in grouped_legs.items():
         'Status':        status_label
     })
 
+    raw_positions.append({
+        'strategy': strat_name,
+        'credit': data['credit'],
+        'pnl': total_pnl,
+        'dte': dte if dte is not None else 0,
+        'status': status_label,
+        'underlying': underlying
+    })
+
 if table_data:
     df = pd.DataFrame(table_data)
     if 'DTE' in df.columns:
         df = df.sort_values('DTE', ascending=True).reset_index(drop=True)
+
+    # ─── KPIs and Strategy Analysis ─────────────────────────────────────────
+    import plotly.express as px
+    import plotly.graph_objects as go
+    import collections
+
+    # Draw KPI cards
+    def draw_kpi_card(label, value, is_currency=False, is_neutral=False, invert_color=False):
+        if is_currency:
+            formatted = f"${value:,.2f}" if value >= 0 else f"-${abs(value):,.2f}"
+        else:
+            if isinstance(value, float):
+                formatted = f"{value:.1f}"
+            else:
+                formatted = str(value)
+                
+        color_class = "kpi-neutral"
+        if not is_neutral:
+            if is_currency:
+                if value > 0:
+                    color_class = "kpi-positive"
+                elif value < 0:
+                    color_class = "kpi-negative"
+            else:
+                try:
+                    val_int = int(value)
+                    if val_int > 0:
+                        if label == "Breached":
+                            color_class = "kpi-negative"
+                        elif label == "Warnings":
+                            color_class = "kpi-warning"
+                        else:
+                            color_class = "kpi-neutral"
+                    else:
+                        color_class = "kpi-positive"
+                except ValueError:
+                    pass
+                    
+        st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label">{label}</div>
+                <div class="kpi-value {color_class}">{formatted}</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+    total_positions = len(raw_positions)
+    total_open_pnl = sum(p['pnl'] for p in raw_positions)
+    total_credit = sum(p['credit'] for p in raw_positions)
+    breached_count = sum(1 for p in raw_positions if 'Breached' in p['status'])
+    warning_count = sum(1 for p in raw_positions if 'Warning' in p['status'])
+    avg_dte = sum(p['dte'] for p in raw_positions) / total_positions if total_positions > 0 else 0
+
+    st.markdown('<div class="section-header">Portfolio Monitor Overview</div>', unsafe_allow_html=True)
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    with c1:
+        draw_kpi_card("Total Positions", total_positions, is_neutral=True)
+    with c2:
+        draw_kpi_card("Total Open P&L", total_open_pnl, is_currency=True)
+    with c3:
+        draw_kpi_card("Credit Collected", total_credit, is_currency=True, is_neutral=True)
+    with c4:
+        draw_kpi_card("Breached", breached_count)
+    with c5:
+        draw_kpi_card("Warnings", warning_count)
+    with c6:
+        dte_color_class = "kpi-negative" if avg_dte < 7 else ("kpi-warning" if avg_dte < 21 else "kpi-positive")
+        st.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-label">Avg DTE</div>
+                <div class="kpi-value {dte_color_class}">{avg_dte:.1f}</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+    # Strategy Counts Chips
+    strat_counts = collections.Counter(p['strategy'] for p in raw_positions)
+    if strat_counts:
+        chips_html = "<div style='display:flex; flex-wrap:wrap; gap:10px; margin-top:15px; margin-bottom:10px;'>"
+        for strat, count in strat_counts.items():
+            display_name = strat
+            if "Calendar" in strat:
+                display_name = "Calendars"
+            elif "Diagonal" in strat:
+                display_name = "Diagonals"
+            elif "Put Credit Spread" in strat:
+                display_name = "Put Spreads"
+            elif "Call Credit Spread" in strat:
+                display_name = "Call Spreads"
+            elif "Iron Condor" in strat:
+                display_name = "Iron Condors"
+            elif "Single Put" in strat:
+                display_name = "Single Puts"
+            elif "Single Call" in strat:
+                display_name = "Single Calls"
+                
+            chips_html += f'<div class="strat-chip"><span style="font-weight: 700; color: #00D4AA; font-size: 16px;">{count}</span><span style="font-size: 12px; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px;">{display_name}</span></div>'
+        chips_html += "</div>"
+        st.markdown(chips_html, unsafe_allow_html=True)
+
+    # Strategy breakdown expander
+    with st.expander("📊 Strategy Breakdown & Analytics", expanded=False):
+        strategy_groups = collections.defaultdict(list)
+        for pos in raw_positions:
+            strategy_groups[pos['strategy']].append(pos)
+            
+        strategy_summary_rows = []
+        for strat, pos_list in strategy_groups.items():
+            s_pnl = sum(p['pnl'] for p in pos_list)
+            s_credit = sum(p['credit'] for p in pos_list)
+            s_dte = sum(p['dte'] for p in pos_list) / len(pos_list)
+            
+            breached = sum(1 for p in pos_list if 'Breached' in p['status'])
+            warnings = sum(1 for p in pos_list if 'Warning' in p['status'])
+            healthy = len(pos_list) - breached - warnings
+            
+            status_parts = []
+            if breached > 0:
+                status_parts.append(f"🔴 {breached} Breached")
+            if warnings > 0:
+                status_parts.append(f"🟡 {warnings} Warning")
+            if healthy > 0:
+                status_parts.append(f"🟢 {healthy} Healthy")
+            status_summary = ", ".join(status_parts)
+            
+            strategy_summary_rows.append({
+                'Strategy': strat,
+                'Positions': len(pos_list),
+                'Open P&L': s_pnl,
+                'Credit Collected': s_credit,
+                'Avg DTE': round(s_dte, 1),
+                'Status Summary': status_summary
+            })
+            
+        df_strat = pd.DataFrame(strategy_summary_rows)
+        df_strat = df_strat.sort_values(by='Positions', ascending=False).reset_index(drop=True)
+        
+        st.markdown("#### Strategy Metrics")
+        
+        def style_strat_df(styler):
+            return styler.format({
+                'Open P&L': lambda v: f"${v:,.2f}" if v >= 0 else f"-${abs(v):,.2f}",
+                'Credit Collected': lambda v: f"${v:,.2f}"
+            }).map(
+                lambda val: 'color: #00D4AA; font-weight: bold;' if isinstance(val, (int, float)) and val > 0 else (
+                    'color: #FF4B4B; font-weight: bold;' if isinstance(val, (int, float)) and val < 0 else ''
+                ),
+                subset=['Open P&L']
+            )
+            
+        st.dataframe(
+            df_strat.style.pipe(style_strat_df),
+            use_container_width=True,
+            hide_index=True
+        )
+        
+        st.markdown("#### Strategy Visualizations")
+        col_chart1, col_chart2 = st.columns(2)
+        
+        with col_chart1:
+            fig_pie = px.pie(
+                df_strat, values='Positions', names='Strategy',
+                title="Active Positions by Strategy",
+                hole=0.4,
+                color_discrete_sequence=['#00D4AA', '#6366F1', '#F59E0B', '#EC4899', '#10B981', '#EF4444', '#3B82F6', '#A855F7']
+            )
+            fig_pie.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                font_color='#FAFAFA', height=300,
+                margin=dict(t=40, b=10, l=10, r=10)
+            )
+            st.plotly_chart(fig_pie, use_container_width=True)
+            
+        with col_chart2:
+            fig_bar = go.Figure()
+            fig_bar.add_trace(go.Bar(
+                y=df_strat['Strategy'],
+                x=df_strat['Credit Collected'],
+                name='Credit Collected',
+                orientation='h',
+                marker_color='#00D4AA'
+            ))
+            fig_bar.add_trace(go.Bar(
+                y=df_strat['Strategy'],
+                x=df_strat['Open P&L'],
+                name='Open P&L',
+                orientation='h',
+                marker_color='#6366F1'
+            ))
+            fig_bar.update_layout(
+                title="Open P&L vs Credit Collected",
+                barmode='group',
+                plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                font_color='#FAFAFA', height=300,
+                margin=dict(t=40, b=10, l=10, r=10),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+    st.markdown('<div class="section-header">Position Monitor Grid</div>', unsafe_allow_html=True)
 
     # ── Strategy colour palette ─────────────────────────────────────────────
     # Each unique strategy gets a distinct semi-transparent background so rows
