@@ -104,8 +104,8 @@ class YahooProvider(QuoteProvider):
                     if not ticker:
                         continue
 
-                    # ── Fetch 22 days of history: used for ATR(14) + prev close ──
-                    hist = ticker.history(period="22d")
+                    # ── Fetch 30 days of history: used for ATR(14), prev close, and Strength ──
+                    hist = ticker.history(period="30d")
 
                     # ── Last price ──
                     info = ticker.fast_info
@@ -135,11 +135,20 @@ class YahooProvider(QuoteProvider):
                     except Exception:
                         pass
 
+                    # ── 3-week (15-day) strength ──
+                    strength_pct = None
+                    if not hist.empty and len(hist) >= 16:
+                        current_val = last_px if (last_px and last_px > 0) else float(hist['Close'].iloc[-1])
+                        close_15d_ago = float(hist['Close'].iloc[-16])
+                        if close_15d_ago > 0 and current_val > 0:
+                            strength_pct = (current_val - close_15d_ago) / close_15d_ago
+
                     metrics[original_symbol] = {
-                        'price':      last_px,
-                        'prev_close': prev_close,
-                        'net_change': net_change,
-                        'atr':        atr,
+                        'price':         last_px,
+                        'prev_close':    prev_close,
+                        'net_change':    net_change,
+                        'atr':           atr,
+                        'strength_pct':  strength_pct,
                     }
                 except Exception:
                     continue

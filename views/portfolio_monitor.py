@@ -14,7 +14,7 @@ if not check_password():
 
 from src.database.queries import get_active_trades, get_trade_legs, get_latest_quotes_batch
 from src.utils.option_symbols import calculate_dte
-from src.utils.formatting import format_currency
+from src.utils.formatting import format_currency, format_strength_meter
 
 
 @st.cache_data(ttl=86400)
@@ -117,6 +117,7 @@ if underlyings:
                 quotes[u]['underlying_price'] = d.get('price')
             quotes[u]['net_change'] = d.get('net_change')
             quotes[u]['atr'] = d.get('atr')
+            quotes[u]['strength_pct'] = d.get('strength_pct')
 
     # ── Data Source Status Bar ──────────────────────────────────────────
     tt_count  = len(tt_prices)
@@ -366,9 +367,13 @@ for (underlying, tid), data in grouped_legs.items():
     def _qty(n): return str(int(n)) if n is not None else '0'
     def _strike(v): return f"{v:.2f}" if v else '—'
 
+    strength_pct = quote.get('strength_pct')
+    strength_bars, _ = format_strength_meter(strength_pct)
+
     table_data.append({
         'Source':        broker_dot,
         'Symbol':        underlying,
+        'Strength':      strength_bars,
         'Strategy':      strat_name,
         'Expiry':        expiry,
         'Far Expiry':    far_expiry if far_expiry else '—',
@@ -736,6 +741,16 @@ if table_data:
             pass
         return ''
 
+    def highlight_strength(val):
+        if val == '▲':
+            return 'color: #00D4AA; font-weight: bold; text-align: center; font-size: 14px;'
+        elif val == '▼':
+            return 'color: #FF4B4B; font-weight: bold; text-align: center; font-size: 14px;'
+        elif val == '▶':
+            return 'color: #FFA421; font-weight: bold; text-align: center; font-size: 14px;'
+        return ''
+
+
     def styling(styler):
         qty_cols = [c for c in df.columns if 'Qty' in c]
         return (
@@ -748,6 +763,7 @@ if table_data:
             .map(highlight_earnings, subset=['Earnings'])
             .map(highlight_days_to_pc, subset=['Days to Put', 'Days to Call'])
             .map(highlight_pnl, subset=['PL Open', 'P&L $'])
+            .map(highlight_strength, subset=['Strength'])
         )
 
     # ── Legend: strategy → colour ───────────────────────────────────────────

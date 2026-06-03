@@ -16,7 +16,8 @@ if not check_password():
 from src.database.queries import get_active_trades, get_trade_legs
 from src.utils.formatting import (
     format_currency, format_pnl_html, format_date, format_dte,
-    status_badge, strategy_display_name, format_delta, format_percentage
+    status_badge, strategy_display_name, format_delta, format_percentage,
+    format_strength_meter_html
 )
 from src.utils.option_symbols import calculate_dte
 from src.journal.journal_manager import add_journal_entry
@@ -177,7 +178,10 @@ if trade_rows:
             with cols[0]:
                 st.write(row['Status'])
             with cols[1]:
-                st.markdown(f"**{row['Underlying']}**")
+                m = row.get('metrics', {})
+                strength_pct = m.get('strength_pct')
+                strength_html = format_strength_meter_html(strength_pct)
+                st.markdown(f"**{row['Underlying']}** {strength_html}", unsafe_allow_html=True)
             with cols[2]:
                 st.caption(row['Broker'])
             with cols[3]:

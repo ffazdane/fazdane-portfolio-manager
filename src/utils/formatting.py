@@ -214,3 +214,34 @@ def note_type_display(note_type):
         'general': ('📌 Note', '#FAFAFA'),
     }
     return types.get(note_type, ('📌 Note', '#FAFAFA'))
+
+
+def format_strength_meter(strength_pct):
+    """
+    Calculate the thinkorswim (tos) style strength meter triangles and color.
+    Uptrend (> +10%): '▲' in green (#00D4AA)
+    Downtrend (< -10%): '▼' in red (#FF4B4B)
+    Range-Bound (-10% to +10%): '▶' in yellow/orange (#FFA421)
+    """
+    if strength_pct is None:
+        return "—", "#888888"
+    try:
+        val = float(strength_pct)
+        if val > 0.10:
+            return "▲", "#00D4AA"
+        elif val < -0.10:
+            return "▼", "#FF4B4B"
+        else:
+            return "▶", "#FFA421"
+    except (ValueError, TypeError):
+        return "—", "#888888"
+
+
+def format_strength_meter_html(strength_pct):
+    """Get the strength meter rendered as a styled HTML span."""
+    bars, color = format_strength_meter(strength_pct)
+    if bars == "—":
+        return f'<span style="color: {color}; font-family: sans-serif;">{bars}</span>'
+    return f'<span style="color: {color}; font-size: 14px; font-weight: bold;">{bars}</span>'
+
+
