@@ -323,7 +323,7 @@ def _build_trade(strategy_type, positions, account, broker, underlying):
         'status': status,
         'entry_credit_debit': entry_total,
         'realized_pnl': realized,
-        'unrealized_pnl': 0,
+        'unrealized_pnl': sum(p.get('unrealized_pnl', 0.0) for p in positions),
         'max_profit': max_profit,
         'max_loss': max_loss,
         'days_held': 0,
@@ -417,6 +417,7 @@ def save_trades_to_db(trades):
                 'entry_price': leg.get('avg_open_price', 0),
                 'exit_price': leg.get('avg_close_price'),
                 'status': 'CLOSED' if leg.get('is_fully_closed') else 'OPEN',
+                'pl_open': leg.get('unrealized_pnl', 0.0),
             }
             insert_trade_leg(leg_data)
 

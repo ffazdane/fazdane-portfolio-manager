@@ -129,8 +129,18 @@ with tab_pos:
         try:
             df = pd.read_csv(io.BytesIO(file_bytes), header=None)
         except Exception as e:
-            st.error(f"Failed to read CSV: {e}")
-            st.stop()
+            # Fallback for CSVs with varying field counts (e.g., thinkorswim Position Statements)
+            try:
+                import csv
+                raw_lines = raw_text.splitlines()
+                parsed_rows = list(csv.reader(raw_lines))
+                # Pad rows to maximum column count to create a valid DataFrame
+                max_cols = max(len(r) for r in parsed_rows) if parsed_rows else 0
+                padded_rows = [r + [''] * (max_cols - len(r)) for r in parsed_rows]
+                df = pd.DataFrame(padded_rows)
+            except Exception as e2:
+                st.error(f"Failed to read CSV: {e2} (original error: {e})")
+                st.stop()
 
         try:
             positions, used_broker, used_account = parse_position_file(

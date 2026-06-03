@@ -62,6 +62,29 @@ def _parse_date(s: str) -> Optional[str]:
     return None
 
 
+def normalize_account_number(acct_str: str) -> str:
+    """Normalize the account number based on registered accounts in the database."""
+    if not acct_str:
+        return acct_str
+    # Extract only digits and letters (clean up spaces/symbols)
+    clean = re.sub(r'[^A-Z0-9]', '', acct_str.upper())
+    
+    try:
+        from src.database.queries import get_account_master
+        accounts = get_account_master()
+        for acc in accounts:
+            acc_num = acc['account_number']  # e.g., 'XXX177'
+            acc_digits = re.sub(r'[^0-9]', '', acc_num)
+            clean_digits = re.sub(r'[^0-9]', '', clean)
+            if acc_digits and clean_digits.endswith(acc_digits):
+                return acc_num
+            if clean in acc_num or acc_num in clean:
+                return acc_num
+    except Exception:
+        pass
+    return clean
+
+
 # ---------------------------------------------------------------------------
 # Schwab position row  "AAPL 06/18/2026 290.00 C"
 # ---------------------------------------------------------------------------
@@ -156,14 +179,24 @@ def detect_position_broker(filename: str, raw_text: str = '') -> dict:
     Returns {'broker': str, 'account': str|None}
     """
     fn = filename.strip()
+    fn_lower = fn.lower()
 
     # Tastytrade positions filename carries the account number
     m = TASTYTRADE_POSITIONS_PATTERN.search(fn)
     if m:
         return {'broker': 'tastytrade', 'account': m.group('account')}
 
+    # Schwab Thinkorswim (Position Statement)
+    if 'positionstatement' in fn_lower or 'position-statement' in fn_lower or (raw_text and 'position statement for' in raw_text.lower()[:500]):
+        acct = None
+        if raw_text:
+            m_acct = re.search(r'Position\s+Statement\s+for\s+(?P<acct>[A-Z0-9]+)', raw_text, re.IGNORECASE)
+            if m_acct:
+                acct = m_acct.group('acct')
+        return {'broker': 'schwab', 'account': acct}
+
     # Schwab — account extracted from first line of CSV content
-    if SCHWAB_POSITIONS_PATTERN.search(fn) or fn.lower().startswith('individual-positions'):
+    if SCHWAB_POSITIONS_PATTERN.search(fn) or fn_lower.startswith('individual-positions'):
         acct = None
         if raw_text:
             hm = _SCHWAB_HEADER_ACCT_RE.search(raw_text[:500])
@@ -180,12 +213,130 @@ def is_position_file(filename: str) -> bool:
         SCHWAB_POSITIONS_PATTERN.search(filename) is not None
         or TASTYTRADE_POSITIONS_PATTERN.search(filename) is not None
         or fn.startswith('individual-positions')
+        or 'positionstatement' in fn
+        or 'position-statement' in fn
     )
 
 
 # ---------------------------------------------------------------------------
 # Schwab position CSV parser
 # ---------------------------------------------------------------------------
+
+def parse_schwab_tos_positions(df: pd.DataFrame, account: str) -> list[dict]:
+    """
+    Parse a Schwab/thinkorswim Position Statement CSV into position dicts.
+    """
+    positions = []
+    current_underlying = None
+    today_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    # Convert the entire dataframe to a list of lists of strings
+    rows = []
+    for _, r in df.iterrows():
+        rows.append([str(val).strip() if pd.notna(val) else '' for val in r.values])
+
+    # Option pattern for thinkorswim instrument column
+    # e.g., "100 18 JUN 26 325 CALL" or "100 (Weeklys) 5 JUN 26 290 CALL"
+    option_re = re.compile(
+        r'^(?P<mult>\d+)\s+'
+        r'(?:\([^)]+\)\s+)?'
+        r'(?P<day>\d{1,2})\s+'
+        r'(?P<month>[A-Z]{3})\s+'
+        r'(?P<year>\d{2})\s+'
+        r'(?P<strike>\d+(?:\.\d+)?)\s+'
+        r'(?P<pc>CALL|PUT)$',
+        re.IGNORECASE
+    )
+
+    MONTHS = {'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6, 
+              'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12}
+
+    # Find the header row to map column indexes
+    header_row = None
+    for row in rows:
+        if 'Instrument' in row and 'Qty' in row and 'P/L Open' in row:
+            header_row = row
+            break
+
+    if not header_row:
+        # Fallback default thinkorswim headers
+        header_row = ['Instrument', 'Qty', 'Days', 'Trade Price', 'Mark', 'Mrk Chng', 'Delta', 'Theta', 'Gamma', 'Vega', 'P/L Open', 'P/L Day', 'BP Effect']
+
+    col_map = {name: i for i, name in enumerate(header_row)}
+
+    for row in rows:
+        if not row or len(row) < 3:
+            continue
+        first_val = row[0].strip()
+        if not first_val or first_val == 'None' or first_val.startswith('Position Statement') or first_val.startswith('Group'):
+            continue
+
+        if any(kw in first_val.lower() for kw in ('subtotal', 'overall', 'cash & sweep', 'bp adjustment', 'available dollars', 'overnight')):
+            continue
+
+        m = option_re.match(first_val)
+        if m:
+            if not current_underlying:
+                continue
+            
+            qty_idx = col_map.get('Qty', 1)
+            trade_price_idx = col_map.get('Trade Price', 3)
+            pl_open_idx = col_map.get('P/L Open', 10)
+            
+            raw_qty = _parse_number(row[qty_idx]) if qty_idx < len(row) else 0.0
+            if raw_qty == 0:
+                continue
+
+            entry_price = abs(_parse_number(row[trade_price_idx])) if trade_price_idx < len(row) else 0.0
+            pl_open = _parse_number(row[pl_open_idx]) if pl_open_idx < len(row) else 0.0
+            side = 'SHORT' if raw_qty < 0 else 'LONG'
+            
+            day = int(m.group('day'))
+            month_name = m.group('month').upper()
+            month = MONTHS.get(month_name, 1)
+            year = 2000 + int(m.group('year'))
+            
+            expiry_str = f"{year:04d}-{month:02d}-{day:02d}"
+            expiry_slashes = f"{month:02d}/{day:02d}/{year:04d}"
+            strike = float(m.group('strike'))
+            pc = 'C' if m.group('pc').upper() == 'CALL' else 'P'
+            
+            schwab_symbol = f"{current_underlying} {expiry_slashes} {strike:.2f} {pc}"
+
+            positions.append({
+                'account':          account or 'schwab',
+                'broker':           'schwab',
+                'underlying':       current_underlying,
+                'expiry':           expiry_str,
+                'put_call':         pc,
+                'strike':           strike,
+                'open_date':        today_str,
+                'instrument_type':  'OPTION',
+                'side':             side,
+                'total_open':       abs(raw_qty),
+                'is_fully_closed':  False,
+                'total_closed':     0,
+                'avg_open_price':   entry_price,
+                'avg_close_price':  0,
+                'realized_pnl':     0,
+                'unrealized_pnl':   pl_open,
+                'symbol':           schwab_symbol,
+            })
+        else:
+            qty_idx = col_map.get('Qty', 1)
+            days_idx = col_map.get('Days', 2)
+            trade_price_idx = col_map.get('Trade Price', 3)
+
+            qty_val = row[qty_idx] if qty_idx < len(row) else ''
+            days_val = row[days_idx] if days_idx < len(row) else ''
+            tp_val = row[trade_price_idx] if trade_price_idx < len(row) else ''
+
+            if qty_val == '' and days_val == '' and tp_val == '':
+                if first_val and len(first_val) <= 6 and (first_val.isalnum() or first_val.startswith('/') or first_val.startswith('^')):
+                    current_underlying = first_val.replace('/', '').replace('^', '').upper()
+
+    return positions
+
 
 def parse_schwab_positions(df: pd.DataFrame, account: str) -> list[dict]:
     """
@@ -196,6 +347,11 @@ def parse_schwab_positions(df: pd.DataFrame, account: str) -> list[dict]:
 
     Returns list of position dicts compatible with strategy_grouper.
     """
+    # Check if this is a thinkorswim format Positions Statement
+    first_val = str(df.iloc[0, 0]) if df.shape[0] > 0 and df.shape[1] > 0 else ''
+    if 'position statement for' in first_val.lower() or 'overall totals' in str(df.values).lower():
+        return parse_schwab_tos_positions(df, account)
+
     positions = []
 
     # Schwab has two metadata rows at the top; find the real header
@@ -228,6 +384,10 @@ def parse_schwab_positions(df: pd.DataFrame, account: str) -> list[dict]:
     col_price  = next((c for c in df.columns if c.lower() == 'price'), None)
     col_cost   = next((c for c in df.columns if 'cost' in c.lower() and 'basis' in c.lower()), None)
     col_type   = next((c for c in df.columns if 'asset type' in c.lower()), None)
+    col_pl_open = next((c for c in df.columns if any(x in c.lower() for x in (
+        'pl open', 'p/l open', 'unrealized p/l', 'unrealized p&l', 
+        'unrealized gain/loss', 'gain/loss', 'p/l ($)', 'p&l ($)', 'unrealized'
+    ))), None)
 
     if not col_symbol:
         raise ValueError("Cannot find 'Symbol' column in Schwab positions file.")
@@ -257,6 +417,7 @@ def parse_schwab_positions(df: pd.DataFrame, account: str) -> list[dict]:
 
         entry_price = abs(_parse_number(row.get(col_price, 0)))
         cost_basis  = _parse_number(row.get(col_cost, 0))
+        pl_open     = _parse_number(row.get(col_pl_open, 0)) if col_pl_open else 0.0
 
         side = 'SHORT' if raw_qty < 0 else 'LONG'
 
@@ -276,6 +437,7 @@ def parse_schwab_positions(df: pd.DataFrame, account: str) -> list[dict]:
             'avg_open_price':   entry_price,
             'avg_close_price':  0,
             'realized_pnl':     0,
+            'unrealized_pnl':   pl_open,
             'symbol':           symbol_val,
         })
 
@@ -329,6 +491,10 @@ def parse_tastytrade_positions(df: pd.DataFrame, account: str) -> list[dict]:
     col_price   = next((c for c in df.columns if 'trade price' in c.lower()), None)
     col_underly = next((c for c in df.columns
                         if 'underlying' in c.lower() and 'last' not in c.lower()), None)
+    col_pl_open = next((c for c in df.columns if any(x in c.lower() for x in (
+        'pl open', 'p/l open', 'unrealized p/l', 'unrealized p&l', 
+        'unrealized gain/loss', 'gain/loss', 'p/l ($)', 'p&l ($)', 'unrealized'
+    ))), None)
 
     if not col_symbol:
         raise ValueError("Cannot find 'Symbol' column in tastytrade positions file.")
@@ -378,6 +544,7 @@ def parse_tastytrade_positions(df: pd.DataFrame, account: str) -> list[dict]:
         entry_price = abs(_parse_number(row.get(col_price, 0))) if col_price else 0
         # TT trade price is per-share; multiply by -1 if it was originally negative
         # (TT shows negative trade price for shorts on the sell side)
+        pl_open     = _parse_number(row.get(col_pl_open, 0)) if col_pl_open else 0.0
 
         side = 'SHORT' if raw_qty < 0 else 'LONG'
 
@@ -401,6 +568,7 @@ def parse_tastytrade_positions(df: pd.DataFrame, account: str) -> list[dict]:
             'avg_open_price':   entry_price,
             'avg_close_price':  0,
             'realized_pnl':     0,
+            'unrealized_pnl':   pl_open,
             'symbol':           symbol_val,
         })
 
@@ -427,6 +595,10 @@ def parse_position_file(
     info = detect_position_broker(filename, raw_text)
     broker  = broker_override  or info.get('broker')  or ''
     account = account_override or info.get('account') or ''
+
+    # Normalize account number if not explicitly overridden
+    if not account_override and account:
+        account = normalize_account_number(account)
 
     if broker == 'schwab':
         positions = parse_schwab_positions(df, account)

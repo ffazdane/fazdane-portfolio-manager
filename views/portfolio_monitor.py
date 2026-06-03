@@ -222,6 +222,7 @@ for trade in active_trades:
                 'broker': _safe(trade, 'broker', ''),
                 'legs': [],
                 'pnl': 0,
+                'unrealized': 0,
                 'credit': 0,
                 'max_profit': 0,
                 'strategies': set(),
@@ -234,6 +235,7 @@ for trade in active_trades:
         # Only add trade-level PNL once per group
         if tid not in grouped_legs[key]['processed_trades']:
             grouped_legs[key]['pnl']        += t_pnl
+            grouped_legs[key]['unrealized'] += unrealized
             grouped_legs[key]['credit']     += t_cred
             grouped_legs[key]['max_profit'] += t_max
             grouped_legs[key]['processed_trades'].add(tid)
@@ -391,6 +393,7 @@ for (underlying, tid), data in grouped_legs.items():
         'Pts to Call':   f"{pts_to_call:.2f}" if pts_to_call is not None else '—',
         'Days to Call':  f"{int(days_to_call)}" if days_to_call is not None else '—',
         'Credit Recv':   format_currency(data['credit']),
+        'PL Open':       format_currency(data['unrealized']),
         'P&L $':         format_currency(total_pnl),
         '% Max Profit':  f"{pct_max_profit:.1f}%" if pct_max_profit is not None else '—',
         'Status':        status_label
@@ -716,6 +719,23 @@ if table_data:
         except ValueError:
             return ''
 
+    def highlight_pnl(val):
+        if not val or val == '—':
+            return ''
+        try:
+            s = val.replace('$', '').replace(',', '').replace(' ', '')
+            if s.startswith('(') and s.endswith(')'):
+                v = -float(s[1:-1])
+            else:
+                v = float(s)
+            if v > 0:
+                return 'color: #00D4AA; font-weight: bold;'
+            elif v < 0:
+                return 'color: #FF4B4B; font-weight: bold;'
+        except Exception:
+            pass
+        return ''
+
     def styling(styler):
         qty_cols = [c for c in df.columns if 'Qty' in c]
         return (
@@ -727,6 +747,7 @@ if table_data:
             .map(highlight_qty, subset=qty_cols)
             .map(highlight_earnings, subset=['Earnings'])
             .map(highlight_days_to_pc, subset=['Days to Put', 'Days to Call'])
+            .map(highlight_pnl, subset=['PL Open', 'P&L $'])
         )
 
     # ── Legend: strategy → colour ───────────────────────────────────────────

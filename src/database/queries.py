@@ -345,8 +345,8 @@ def insert_trade_leg(leg_data):
         cursor = conn.execute(
             """INSERT INTO trade_legs
                (trade_id, symbol, underlying, expiry, strike, option_type, side,
-                qty_open, qty_closed, entry_price, exit_price, current_mark, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                qty_open, qty_closed, entry_price, exit_price, current_mark, status, pl_open)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 leg_data['trade_id'],
                 leg_data['symbol'],
@@ -361,6 +361,7 @@ def insert_trade_leg(leg_data):
                 leg_data.get('exit_price'),
                 leg_data.get('current_mark'),
                 leg_data.get('status', 'OPEN'),
+                leg_data.get('pl_open', 0.0),
             )
         )
         return cursor.lastrowid

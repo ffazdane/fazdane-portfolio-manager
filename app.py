@@ -255,6 +255,13 @@ def main():
                     st.rerun()
 
         # Account selector
+        db_accounts = []
+        try:
+            from src.database.queries import get_unique_accounts
+            db_accounts = get_unique_accounts()
+        except Exception:
+            pass
+
         if st.session_state.get('accounts'):
             account_options = ["All Accounts"] + [
                 f"{a['account_number']} ({a['nickname']})"
@@ -263,6 +270,13 @@ def main():
             selected = st.selectbox("Account", account_options, key="account_selector")
             if selected != "All Accounts":
                 st.session_state.selected_account = selected.split(' ')[0]
+            else:
+                st.session_state.selected_account = None
+        elif db_accounts:
+            account_options = ["All Accounts"] + db_accounts
+            selected = st.selectbox("Account", account_options, key="account_selector")
+            if selected != "All Accounts":
+                st.session_state.selected_account = selected
             else:
                 st.session_state.selected_account = None
 

@@ -60,13 +60,17 @@ def calculate_trade_pnl(trade, legs=None, quotes=None):
 
         # Unrealized P&L (from open portions)
         remaining_qty = qty_open - qty_closed
-        if remaining_qty > 0 and current_mark is not None:
-            if side == 'SHORT':
-                unrealized = (entry_price - current_mark) * remaining_qty * multiplier
+        if remaining_qty > 0:
+            if current_mark is not None:
+                if side == 'SHORT':
+                    unrealized = (entry_price - current_mark) * remaining_qty * multiplier
+                else:
+                    unrealized = (current_mark - entry_price) * remaining_qty * multiplier
+                total_unrealized += unrealized
+                total_current_value += current_mark * remaining_qty * multiplier
             else:
-                unrealized = (current_mark - entry_price) * remaining_qty * multiplier
-            total_unrealized += unrealized
-            total_current_value += current_mark * remaining_qty * multiplier
+                # Fallback to pl_open stored in the database if mark is not available
+                total_unrealized += (leg.get('pl_open', 0.0) or 0.0)
 
         total_entry_value += entry_price * qty_open * multiplier
 
@@ -85,6 +89,24 @@ def calculate_trade_pnl(trade, legs=None, quotes=None):
         result['return_on_risk'] = (result['total_pnl'] / result['max_loss']) * 100
 
     return result
+
+
+def recalculate_and_save_trade_pnl(trade_id):
+    """Recalculate realized and unrealized P&L for a trade and update it in the database."""
+    from src.database.queries import get_trade_by_id, get_trade_legs, update_trade
+    trade = get_trade_by_id(trade_id)
+    if not trade:
+        return
+    legs = get_trade_legs(trade_id)
+    pnl_metrics = calculate_trade_pnl(trade, legs)
+    
+    # We should also update realized_pnl and unrealized_pnl
+    updates = {
+        'realized_pnl': pnl_metrics['realized_pnl'],
+        'unrealized_pnl': pnl_metrics['unrealized_pnl']
+    }
+    update_trade(trade_id, updates)
+
 
 
 def calculate_portfolio_pnl(trades, quotes=None):

@@ -22,6 +22,7 @@ from src.utils.option_symbols import calculate_dte, build_display_symbol
 from src.journal.journal_manager import (
     add_journal_entry, get_trade_journal, get_available_note_types
 )
+from src.engine.pnl_calculator import recalculate_and_save_trade_pnl
 
 
 st.markdown("""
@@ -150,6 +151,7 @@ if legs:
             'Entry Price': format_currency(leg['entry_price']),
             'Exit Price': format_currency(_safe(leg, 'exit_price')),
             'Mark': format_currency(_safe(leg, 'current_mark')),
+            'PL Open': format_currency(_safe(leg, 'pl_open', 0.0), include_sign=True),
             'Status': leg['status'],
         })
 
@@ -231,7 +233,7 @@ if legs:
                 
                 b_cols = st.columns([2, 1, 1, 1])
                 with b_cols[0]:
-                    if st.button("Save", key=f"save_{lid}", use_container_width=True):
+                                    if st.button("Save", key=f"save_{lid}", use_container_width=True):
                         try:
                             updates = {
                                 'side': n_sid,
@@ -250,6 +252,7 @@ if legs:
                                 updates['status'] = 'OPEN'
                                 
                             update_trade_leg(lid, updates)
+                            recalculate_and_save_trade_pnl(selected_id)
                             st.success("Leg updated!")
                             st.rerun()
                         except ValueError:
@@ -291,6 +294,8 @@ if legs:
                             
                             n_tid = insert_trade(new_trade)
                             update_trade_leg(lid, {'trade_id': n_tid, 'status': 'CLOSED', 'exit_price': exit_px})
+                            recalculate_and_save_trade_pnl(selected_id)
+                            recalculate_and_save_trade_pnl(n_tid)
                             st.success("Leg transferred to History log!")
                             st.rerun()
                         except Exception as e:
@@ -303,6 +308,7 @@ if legs:
                             try:
                                 update_trade_leg(lid, {'status': 'OPEN'})
                                 update_trade(trade['trade_id'], {'status': 'ACTIVE', 'close_date': None})
+                                recalculate_and_save_trade_pnl(trade['trade_id'])
                                 st.success("Leg reactivated! You can now link it back to other strategies.")
                                 st.rerun()
                             except Exception as e:
@@ -312,6 +318,7 @@ if legs:
                     if st.button("🗑️", key=f"del_{lid}", use_container_width=True, help="Permanently delete leg"):
                         from src.database.queries import delete_trade_leg
                         delete_trade_leg(lid)
+                        recalculate_and_save_trade_pnl(selected_id)
                         st.success("Leg deleted!")
                         st.rerun()
 else:
@@ -352,6 +359,7 @@ with st.expander("➕ Add / Link Option Legs"):
                 'status': n_status,
             }
             insert_trade_leg(new_leg_data)
+            recalculate_and_save_trade_pnl(selected_id)
             st.success("Leg successfully added.")
             st.rerun()
 
@@ -384,7 +392,18 @@ with st.expander("➕ Add / Link Option Legs"):
         else:
             sel_leg = st.selectbox("Select Leg to Transfer", options=list(linkable_legs.keys()), format_func=lambda x: linkable_legs[x], key="sel_link_leg")
             if st.button("Transfer Leg to This Trade", key="transfer_leg_btn", use_container_width=True):
+                # Find original trade_id first
+                from src.database.connection import get_db_readonly
+                original_tid = None
+                with get_db_readonly() as conn:
+                    row = conn.execute("SELECT trade_id FROM trade_legs WHERE leg_id = ?", (sel_leg,)).fetchone()
+                    if row:
+                        original_tid = row['trade_id']
+                
                 update_trade_leg(sel_leg, {'trade_id': selected_id})
+                recalculate_and_save_trade_pnl(selected_id)
+                if original_tid:
+                    recalculate_and_save_trade_pnl(original_tid)
                 st.success("Leg successfully transferred!")
                 st.rerun()
 

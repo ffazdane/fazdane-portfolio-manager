@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # Increment this every time the schema changes (new column, new table, etc.)
 # Each version maps to one _migration_vN() function below.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 SCHEMA_SQL = """
@@ -132,6 +132,7 @@ CREATE TABLE IF NOT EXISTS trade_legs (
     exit_price REAL,
     current_mark REAL,
     status TEXT NOT NULL DEFAULT 'OPEN',  -- 'OPEN', 'CLOSED', 'EXPIRED', 'ASSIGNED'
+    pl_open REAL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (trade_id) REFERENCES trades(trade_id)
@@ -374,7 +375,7 @@ def migrate_database() -> int:
     migrations = [
         (1, _migration_v1),
         (2, _migration_v2),
-        # Add new entries here: (3, _migration_v3), ...
+        (3, _migration_v3),
     ]
 
     for version, fn in migrations:
@@ -406,6 +407,17 @@ def _migration_v2():
     Tables are created automatically via init_database() calling SCHEMA_SQL.
     """
     pass
+
+
+def _migration_v3():
+    """
+    v3: Add pl_open column to trade_legs table.
+    """
+    with get_db() as conn:
+        try:
+            conn.execute("ALTER TABLE trade_legs ADD COLUMN pl_open REAL DEFAULT 0")
+        except Exception as e:
+            logger.warning(f"Migration v3 error (leg_open column might already exist): {e}")
 
 
 def reset_database():
