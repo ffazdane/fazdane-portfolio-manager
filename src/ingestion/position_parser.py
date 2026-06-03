@@ -264,10 +264,17 @@ def parse_schwab_tos_positions(df: pd.DataFrame, account: str) -> list[dict]:
 
     col_map = {name: i for i, name in enumerate(header_row)}
 
+    current_group = None
     for row in rows:
         if not row or len(row) < 3:
             continue
         first_val = row[0].strip()
+        if first_val.startswith('Group "'):
+            m_group = re.match(r'^Group\s+"([^"]+)"', first_val)
+            if m_group:
+                current_group = m_group.group(1)
+            continue
+
         if not first_val or first_val == 'None' or first_val.startswith('Position Statement') or first_val.startswith('Group'):
             continue
 
@@ -321,6 +328,7 @@ def parse_schwab_tos_positions(df: pd.DataFrame, account: str) -> list[dict]:
                 'realized_pnl':     0,
                 'unrealized_pnl':   pl_open,
                 'symbol':           schwab_symbol,
+                'broker_group':     current_group,
             })
         else:
             qty_idx = col_map.get('Qty', 1)
@@ -439,6 +447,7 @@ def parse_schwab_positions(df: pd.DataFrame, account: str) -> list[dict]:
             'realized_pnl':     0,
             'unrealized_pnl':   pl_open,
             'symbol':           symbol_val,
+            'broker_group':     None,
         })
 
     return positions
@@ -570,6 +579,7 @@ def parse_tastytrade_positions(df: pd.DataFrame, account: str) -> list[dict]:
             'realized_pnl':     0,
             'unrealized_pnl':   pl_open,
             'symbol':           symbol_val,
+            'broker_group':     None,
         })
 
     return positions

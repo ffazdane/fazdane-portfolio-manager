@@ -31,7 +31,7 @@ def group_positions_into_trades(positions):
     Group a list of position dicts into trade/strategy records.
     Returns list of trade dicts with nested legs.
     """
-    # Group positions by account + underlying + approximate open date
+    # Group positions by account + underlying + approximate open date + broker_group
     groups = defaultdict(list)
 
     for pos in positions:
@@ -41,13 +41,21 @@ def group_positions_into_trades(positions):
             groups[key].append(pos)
             continue
 
-        # Group by account + broker + underlying + trade date (±1 day)
+        # Group by account + broker + underlying + trade date (±1 day) + broker_group (if available)
         base_date = pos.get('open_date', '')
-        key = (pos['account'], pos['broker'], pos['underlying'], base_date[:10] if base_date else '')
+        bg = pos.get('broker_group')
+        key = (pos['account'], pos['broker'], pos['underlying'], base_date[:10] if base_date else '', bg or '')
         groups[key].append(pos)
 
     trades = []
-    for (account, broker, underlying, base_date), group_positions in groups.items():
+    for key, group_positions in groups.items():
+        # Unpack key depending on length
+        if len(key) == 5:
+            account, broker, underlying, base_date, bg = key
+        else:
+            account, broker, underlying, base_date = key[:4]
+            bg = ''
+
         # Further sub-group by date proximity
         date_groups = _group_by_date_proximity(group_positions)
 
@@ -126,6 +134,22 @@ def _identify_strategies(positions, account, broker, underlying):
     unassigned = option_legs.copy()
     found_trades = []
 
+    def extract_fours(strategy_types):
+        import itertools
+        modified = True
+        while modified and len(unassigned) >= 4:
+            modified = False
+            for combo in itertools.combinations(range(len(unassigned)), 4):
+                combo_legs = [unassigned[idx] for idx in combo]
+                t = _identify_strategy(combo_legs, account, broker, underlying)
+                if t and t['strategy_type'] in strategy_types:
+                    found_trades.append(t)
+                    # Remove in reverse order
+                    for idx in sorted(combo, reverse=True):
+                        unassigned.pop(idx)
+                    modified = True
+                    break
+
     def extract_pairs(strategy_types):
         i = 0
         while i < len(unassigned):
@@ -140,6 +164,9 @@ def _identify_strategies(positions, account, broker, underlying):
                     break
             if not paired:
                 i += 1
+
+    # Priority 0: Four-leg strategies (Iron Condor, Iron Butterfly)
+    extract_fours(['IRON_CONDOR', 'IRON_BUTTERFLY'])
 
     # Priority 1: Calendar Spreads (Same strike, diff expiry)
     extract_pairs(['CALENDAR_SPREAD'])
