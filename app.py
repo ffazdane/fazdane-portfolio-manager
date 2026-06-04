@@ -194,6 +194,17 @@ def main():
         /* Hide Streamlit branding */
         #MainMenu {visibility: hidden;}
         footer {visibility: hidden;}
+
+        /* Permanently hide sidebar collapse and expand controls */
+        [data-testid="collapsedControl"],
+        [data-testid="stSidebarCollapseButton"] {
+            opacity: 0 !important;
+            pointer-events: none !important;
+            position: absolute !important;
+            width: 0 !important;
+            height: 0 !important;
+            overflow: hidden !important;
+        }
         
         /* Tabs */
         .stTabs [data-baseweb="tab"] {
@@ -220,6 +231,24 @@ def main():
             box-shadow: 0 4px 15px rgba(0, 212, 170, 0.2);
         }
     </style>
+    """, unsafe_allow_html=True)
+
+    # Force sidebar to expand automatically and override browser cached state
+    st.markdown("""
+    <script>
+        (function() {
+            function expandSidebar() {
+                const sidebar = document.querySelector('[data-testid="stSidebar"]');
+                const expandButton = document.querySelector('[data-testid="collapsedControl"] button');
+                if (sidebar && sidebar.getAttribute('data-collapsed') === 'true' && expandButton) {
+                    expandButton.click();
+                }
+            }
+            expandSidebar();
+            const interval = setInterval(expandSidebar, 100);
+            setTimeout(() => clearInterval(interval), 3000);
+        })();
+    </script>
     """, unsafe_allow_html=True)
 
     # Sidebar branding — logo + FAZDANE ANALYTICS text block
