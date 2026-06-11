@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 # Increment this every time the schema changes (new column, new table, etc.)
 # Each version maps to one _migration_vN() function below.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 SCHEMA_SQL = """
@@ -314,6 +314,33 @@ CREATE TABLE IF NOT EXISTS year_close_status (
     notes TEXT,
     is_locked INTEGER DEFAULT 0
 );
+
+-- ============================================================
+-- MARKET RISK WARNINGS: Cached index warning scores
+-- ============================================================
+CREATE TABLE IF NOT EXISTS market_risk_warnings (
+    ticker TEXT PRIMARY KEY,
+    score INTEGER NOT NULL,
+    level TEXT NOT NULL,
+    color TEXT,
+    as_of_date TEXT,
+    close_price REAL,
+    vix REAL,
+    rsi REAL,
+    zscore REAL,
+    dev_sma50 REAL,
+    dev_sma200 REAL,
+    roc20 REAL,
+    bb_pct REAL,
+    consec_up INTEGER,
+    from_h252 REAL,
+    hist_exp_dd_avg REAL,
+    hist_exp_dd_max REAL,
+    hist_n_events INTEGER,
+    hist_bucket TEXT,
+    signals_json TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 
@@ -376,6 +403,7 @@ def migrate_database() -> int:
         (1, _migration_v1),
         (2, _migration_v2),
         (3, _migration_v3),
+        (4, _migration_v4),
     ]
 
     for version, fn in migrations:
@@ -420,9 +448,42 @@ def _migration_v3():
             logger.warning(f"Migration v3 error (leg_open column might already exist): {e}")
 
 
+def _migration_v4():
+    """
+    v4: Add market_risk_warnings table to cache index warning scores.
+    """
+    with get_db() as conn:
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS market_risk_warnings (
+            ticker TEXT PRIMARY KEY,
+            score INTEGER NOT NULL,
+            level TEXT NOT NULL,
+            color TEXT,
+            as_of_date TEXT,
+            close_price REAL,
+            vix REAL,
+            rsi REAL,
+            zscore REAL,
+            dev_sma50 REAL,
+            dev_sma200 REAL,
+            roc20 REAL,
+            bb_pct REAL,
+            consec_up INTEGER,
+            from_h252 REAL,
+            hist_exp_dd_avg REAL,
+            hist_exp_dd_max REAL,
+            hist_n_events INTEGER,
+            hist_bucket TEXT,
+            signals_json TEXT,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """)
+
+
 def reset_database():
     """Drop and recreate all tables. WARNING: Destroys all data."""
     drop_sql = """
+    DROP TABLE IF EXISTS market_risk_warnings;
     DROP TABLE IF EXISTS alerts;
     DROP TABLE IF EXISTS trade_snapshots;
     DROP TABLE IF EXISTS market_quotes;

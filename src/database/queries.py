@@ -910,3 +910,44 @@ def get_broker_transactions(year=None, broker=None, account=None):
             params.append(account)
         query += " ORDER BY transaction_date DESC"
         return conn.execute(query, params).fetchall()
+
+
+def get_market_risk_warnings():
+    """Get all saved market risk warning score details."""
+    with get_db_readonly() as conn:
+        return conn.execute("SELECT * FROM market_risk_warnings").fetchall()
+
+
+def upsert_market_risk_warning(data):
+    """Upsert a market risk warning record."""
+    with get_db() as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO market_risk_warnings
+               (ticker, score, level, color, as_of_date, close_price, vix, rsi, zscore,
+                dev_sma50, dev_sma200, roc20, bb_pct, consec_up, from_h252,
+                hist_exp_dd_avg, hist_exp_dd_max, hist_n_events, hist_bucket, signals_json, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+            (
+                data['ticker'],
+                data['score'],
+                data['level'],
+                data['color'],
+                data['as_of_date'],
+                data.get('close', data.get('close_price')),
+                data.get('vix'),
+                data.get('rsi'),
+                data.get('zscore'),
+                data.get('dev_sma50'),
+                data.get('dev_sma200'),
+                data.get('roc20'),
+                data.get('bb_pct'),
+                data.get('consec_up'),
+                data.get('from_h252'),
+                data.get('hist_exp_dd_avg'),
+                data.get('hist_exp_dd_max'),
+                data.get('hist_n_events'),
+                data.get('hist_bucket'),
+                json.dumps(data.get('signals', [])) if isinstance(data.get('signals'), list) else data.get('signals_json')
+            )
+        )
+

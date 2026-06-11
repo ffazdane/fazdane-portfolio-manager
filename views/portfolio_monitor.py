@@ -12,9 +12,11 @@ from src.utils.auth import check_password
 if not check_password():
     st.stop()
 
-from src.database.queries import get_active_trades, get_trade_legs, get_latest_quotes_batch
+from src.database.queries import get_active_trades, get_trade_legs, get_latest_quotes_batch, get_market_risk_warnings
 from src.utils.option_symbols import calculate_dte
 from src.utils.formatting import format_currency, format_strength_meter
+from src.utils.market_risk import recalculate_and_cache_market_risk, generate_gauge_figure, clear_market_risk_cache, TICKERS
+import json
 
 
 @st.cache_data(ttl=86400)
@@ -543,6 +545,85 @@ if table_data:
             chips_html += f'<div class="strat-chip" style="--chip-bg: {color}; --chip-border: {border_color};"><span style="font-weight: 700; color: {solid_color}; font-size: 16px;">{count}</span><span style="font-size: 12px; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px;">{display_name}</span></div>'
         chips_html += "</div>"
         st.markdown(chips_html, unsafe_allow_html=True)
+
+    # ─── Market Mean-Reversion Risk Dials ─────────────────────────────────────
+    with st.expander("🦅 Market Mean-Reversion Risk Dials", expanded=True):
+        warnings_data = {row['ticker']: dict(row) for row in get_market_risk_warnings()}
+        
+        if not warnings_data:
+            st.warning("⚠️ No market warning dials computed yet. Please run the analysis to populate the dials.")
+            if st.button("🔄 Run Market Risk Analysis", use_container_width=True):
+                with st.spinner("Fetching historical indices and calculating risk metrics..."):
+                    recalculate_and_cache_market_risk()
+                    clear_market_risk_cache()
+                st.rerun()
+        else:
+            sample_tk = list(warnings_data.keys())[0]
+            as_of_dt = warnings_data[sample_tk].get('as_of_date', 'N/A')
+            updated_ts = warnings_data[sample_tk].get('updated_at', 'N/A')
+            st.markdown(f"<div style='font-size:13px; color:#888; margin-bottom:10px;'>Market data as of: <span style='color:#00D4AA; font-weight:bold;'>{as_of_dt}</span> | Last calculated: <span style='color:#6366F1; font-weight:bold;'>{updated_ts}</span></div>", unsafe_allow_html=True)
+            
+            w_col1, w_col2, w_col3 = st.columns(3)
+            for idx, tk in enumerate(TICKERS):
+                with [w_col1, w_col2, w_col3][idx]:
+                    if tk in warnings_data:
+                        row = warnings_data[tk]
+                        # Generate the Matplotlib figure
+                        fig = generate_gauge_figure(row['score'], row['level'], row['ticker'], bg_color="#1A1F2E")
+                        st.pyplot(fig, clear_figure=True)
+                        
+                        # Details table below the dial
+                        vix_val = f"{row['vix']:.1f}" if row['vix'] is not None else "N/A"
+                        rsi_val = f"{row['rsi']:.1f}" if row['rsi'] is not None else "N/A"
+                        zsc_val = f"{row['zscore']:.2f}" if row['zscore'] is not None else "N/A"
+                        dev50_val = f"{row['dev_sma50']*100:+.2f}%" if row['dev_sma50'] is not None else "N/A"
+                        
+                        st.markdown(f"""
+                        <div style="background:#1A1F2E; border:1px solid rgba(255,255,255,0.05); padding:12px; border-radius:8px; font-size:12px; margin-top:-10px; margin-bottom:15px; box-shadow: 0 4px 10px rgba(0,0,0,0.15);">
+                            <table style="width:100%; border-collapse:collapse;">
+                                <tr><td style="color:#888; padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.03); border-top:none; border-left:none; border-right:none;">Close Price</td><td style="text-align:right; font-weight:bold; color:#fff; padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.03); border-top:none; border-left:none; border-right:none;">${row['close_price']:.2f}</td></tr>
+                                <tr><td style="color:#888; padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.03); border-top:none; border-left:none; border-right:none;">VIX Index</td><td style="text-align:right; font-weight:bold; color:#fff; padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.03); border-top:none; border-left:none; border-right:none;">{vix_val}</td></tr>
+                                <tr><td style="color:#888; padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.03); border-top:none; border-left:none; border-right:none;">RSI(14)</td><td style="text-align:right; font-weight:bold; color:#fff; padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.03); border-top:none; border-left:none; border-right:none;">{rsi_val}</td></tr>
+                                <tr><td style="color:#888; padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.03); border-top:none; border-left:none; border-right:none;">Z-Score (20d)</td><td style="text-align:right; font-weight:bold; color:#fff; padding:3px 0; border-bottom:1px solid rgba(255,255,255,0.03); border-top:none; border-left:none; border-right:none;">{zsc_val}</td></tr>
+                                <tr><td style="color:#888; padding:3px 0; border-top:none; border-left:none; border-right:none; border-bottom:none;">Dev vs SMA50</td><td style="text-align:right; font-weight:bold; color:#fff; padding:3px 0; border-top:none; border-left:none; border-right:none; border-bottom:none;">{dev50_val}</td></tr>
+                            </table>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.caption(f"No cached data for {tk}")
+            
+            # Expander for warning signals details
+            with st.expander("🔍 Triggered Overextension Signals & Historical Analogue DD", expanded=False):
+                for tk in TICKERS:
+                    if tk in warnings_data:
+                        row = warnings_data[tk]
+                        signals = json.loads(row['signals_json']) if row['signals_json'] else []
+                        
+                        st.markdown(f"**{tk} Warnings & Signals**")
+                        if signals:
+                            for sig in signals:
+                                st.markdown(f"- {sig}")
+                        else:
+                            st.markdown("- *No warning signals triggered (market basing / neutral)*")
+                        
+                        # Show historical drawdown context if available
+                        exp_dd = row.get('hist_exp_dd_avg')
+                        if exp_dd is not None:
+                            n_events = row.get('hist_n_events', 0)
+                            max_dd = row.get('hist_exp_dd_max')
+                            bucket = row.get('hist_bucket', '')
+                            st.caption(f"**Historical Context:** In the `{bucket}` extension bucket, similar peaks preceded an average drawdown of **{exp_dd*100:.2f}%** (worst of **{max_dd*100:.2f}%**) across **{n_events}** historical analogue events.")
+                        st.divider()
+                        
+            col_ref_l, col_ref_r = st.columns([8, 2])
+            with col_ref_r:
+                if st.button("🔄 Refresh Dials (Mean Reversion)", use_container_width=True, help="Download historical indices and recalculate dials"):
+                    with st.spinner("Recalculating market warning dials..."):
+                        recalculate_and_cache_market_risk()
+                        clear_market_risk_cache()
+                    st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
 
     # Strategy breakdown expander
     with st.expander("📊 Strategy Breakdown & Analytics", expanded=False):
