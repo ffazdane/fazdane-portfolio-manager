@@ -12,6 +12,9 @@ from src.utils.auth import check_password
 if not check_password():
     st.stop()
 
+import importlib
+import src.database.queries
+importlib.reload(src.database.queries)
 from src.database.queries import get_active_trades, get_trade_legs, get_latest_quotes_batch, get_market_risk_warnings
 from src.utils.option_symbols import calculate_dte
 from src.utils.formatting import format_currency, format_strength_meter
