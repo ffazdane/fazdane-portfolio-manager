@@ -248,6 +248,7 @@ for trade in active_trades:
 
 table_data = []
 raw_positions = []
+take_profit_candidates = []
 
 for (underlying, tid), data in grouped_legs.items():
     legs = data['legs']
@@ -341,14 +342,27 @@ for (underlying, tid), data in grouped_legs.items():
     pct_max_profit = (total_pnl / max_p * 100) if (max_p and max_p > 0) else None
     
     # Status label
-    if not has_short and has_long:
+    # Determine synthetic strategy name if multiple were combined
+    strat_name = " / ".join(list(data['strategies']))
+    if len(data['strategies']) > 1 and put_short_strike and call_short_strike:
+        strat_name = "Iron Condor (Synthetic)"
+
+    if pct_max_profit is not None and pct_max_profit >= 50:
+        status_label = "🎯 Take Profit (50%+)"
+        take_profit_candidates.append({
+            'symbol': underlying,
+            'strategy': strat_name,
+            'pct_profit': pct_max_profit
+        })
+    elif not has_short and has_long:
         status_label = "☑️ Active (Long)"
     elif has_short and has_long and far_expiry:
         # Both legs open at different expiries → full calendar position
         status_label = "☑️ Inside"
     else:
         status_label = "☑️ Inside"
-    if current_price:
+        
+    if current_price and "Take Profit" not in status_label:
         if call_short_strike and current_price >= call_short_strike:
             status_label = "⚠️ Breached (Call)"
         elif put_short_strike and current_price <= put_short_strike:
@@ -358,11 +372,6 @@ for (underlying, tid), data in grouped_legs.items():
         elif pts_to_put and pts_to_put > 0 and pts_to_put < (0.02 * current_price):
             status_label = "🟡 Warning (Put)"
             
-    # Determine synthetic strategy name if multiple were combined
-    strat_name = " / ".join(list(data['strategies']))
-    if len(data['strategies']) > 1 and put_short_strike and call_short_strike:
-        strat_name = "Iron Condor (Synthetic)"
-        
     net_change = quote.get('net_change')
 
     raw_broker = data['broker'].lower()
@@ -417,6 +426,21 @@ for (underlying, tid), data in grouped_legs.items():
         'status': status_label,
         'underlying': underlying
     })
+
+if take_profit_candidates:
+    tp_count = len(take_profit_candidates)
+    details = ", ".join([f"{c['symbol']} ({c['pct_profit']:.1f}%)" for c in take_profit_candidates])
+    st.markdown(f"""
+    <div style="background: linear-gradient(90deg, rgba(0,212,170,0.15) 0%, rgba(0,212,170,0.05) 100%);
+                border: 1px solid #00D4AA; border-radius: 10px; padding: 15px 20px; margin-bottom: 20px;
+                box-shadow: 0 4px 15px rgba(0,212,170,0.1);">
+        <h4 style="color:#00D4AA; margin:0 0 10px 0;">🎯 Action Required: Take Profit Targets Met</h4>
+        <p style="margin:0; color:#FAFAFA;">
+            <b>{tp_count}</b> position(s) have reached or exceeded 50% max profit. Consider taking profit and redeploying capital.<br>
+            <span style="color:#aaa; font-size: 13px;">Candidates: {details}</span>
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
 if table_data:
     df = pd.DataFrame(table_data)
@@ -475,10 +499,12 @@ if table_data:
                             color_class = "kpi-negative"
                         elif label == "Warnings":
                             color_class = "kpi-warning"
+                        elif label == "Targets Met":
+                            color_class = "kpi-positive"
                         else:
                             color_class = "kpi-neutral"
                     else:
-                        color_class = "kpi-positive"
+                        color_class = "kpi-positive" if label != "Targets Met" else "kpi-neutral"
                 except ValueError:
                     pass
                     
@@ -494,12 +520,13 @@ if table_data:
     total_credit = sum(p['credit'] for p in raw_positions)
     breached_count = sum(1 for p in raw_positions if 'Breached' in p['status'])
     warning_count = sum(1 for p in raw_positions if 'Warning' in p['status'])
+    targets_met_count = sum(1 for p in raw_positions if 'Take Profit' in p['status'])
     
     import math
     avg_dte = int(math.ceil(sum(p['dte'] for p in raw_positions) / total_positions)) if total_positions > 0 else 0
 
     st.markdown('<div class="section-header">Portfolio Monitor Overview</div>', unsafe_allow_html=True)
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
     with c1:
         draw_kpi_card("Total Positions", total_positions, is_neutral=True)
     with c2:
@@ -511,6 +538,8 @@ if table_data:
     with c5:
         draw_kpi_card("Warnings", warning_count)
     with c6:
+        draw_kpi_card("Targets Met", targets_met_count)
+    with c7:
         dte_color_class = "kpi-negative" if avg_dte < 7 else ("kpi-warning" if avg_dte < 21 else "kpi-positive")
         st.markdown(f"""
             <div class="kpi-card">
@@ -739,7 +768,9 @@ if table_data:
         return [base] * len(row)
 
     def highlight_status(val):
-        if 'Breached' in str(val):
+        if 'Take Profit' in str(val):
+            return 'background-color: rgba(0, 212, 170, 0.25); color: #00D4AA; font-weight:bold; border: 1px solid #00D4AA;'
+        elif 'Breached' in str(val):
             return 'background-color: rgba(255, 75, 75, 0.35); color: #ff4b4b; font-weight:bold;'
         elif 'Warning' in str(val):
             return 'background-color: rgba(255, 164, 33, 0.30); color: #ffa421; font-weight:bold;'
